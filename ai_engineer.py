@@ -38,7 +38,7 @@ client = OpenAI(
 MODEL = "deepseek-coder"
 MEMORY_FILE = "memory.json"
 IMPLEMENTATION_FILE = "implementation.py"
-MAX_ITERATIONS = 10  # Maximum number of iterations to prevent infinite loops
+MAX_ITERATIONS = 3  # Maximum number of iterations to prevent infinite loops
 
 
 def parse_arguments() -> str:
@@ -129,12 +129,17 @@ def run_tests(implementation_file: str = IMPLEMENTATION_FILE, prompt: str = None
             implementation_code = file.read()
             
         # Run the tests
-        result = subprocess.run(
-            ["python", implementation_file],
-            capture_output=True,
-            text=True,
-            timeout=30  # Set a timeout to prevent hanging
-        )
+        try:
+            result = subprocess.run(
+                ["python3", implementation_file],
+                capture_output=True,
+                text=True,
+                timeout=30  # Set a timeout to prevent hanging
+            )
+        except subprocess.TimeoutExpired:
+            return False, "Execution timed out after 30 seconds."
+        except Exception as e:
+            return False, f"Error executing tests: {str(e)}"
         
         # Combine stdout and stderr for complete output
         output = result.stdout
@@ -168,13 +173,8 @@ def run_tests(implementation_file: str = IMPLEMENTATION_FILE, prompt: str = None
         ```
         
         Based on the specification, implementation, and test output, determine if ALL tests have passed.
-        Consider the following:
-        1. Are there any explicit test failures mentioned in the output?
-        2. Are there any exceptions or errors in the output?
-        3. Does the implementation satisfy all requirements from the specification?
-        4. Are all edge cases properly tested and passing?
         
-        Respond with ONLY 'PASSED' or 'FAILED' followed by a brief explanation.
+        Respond with ONLY 'PASSED' or 'FAILED' followed by a one-sentence explanation.
         """
         
         generation = trace.generation(
@@ -243,13 +243,6 @@ def update_memory(implementation: str, test_output: str, memory: Dict[str, Any])
     memory_prompt = f"""
     You are an AI software engineer analyzing test results and implementation code.
     Based on the implementation and test output, identify key learnings that would be useful for future iterations.
-    Focus on:
-    1. Specific bugs or issues identified in the code
-    2. Test failures and their causes
-    3. Edge cases that need to be handled
-    4. Specific improvements needed in the implementation
-    
-    DO NOT provide general programming principles or advice. Focus ONLY on specific issues with THIS implementation.
     
     Implementation:
     ```python
@@ -264,7 +257,12 @@ def update_memory(implementation: str, test_output: str, memory: Dict[str, Any])
     Previous Learnings:
     {memory.get("learnings", [])}
     
-    Provide a concise list of 3-5 specific learnings that should be remembered for future iterations. Each learning should directly relate to fixing issues in the current implementation.
+    Provide ONLY 2-3 one-line bullet points that describe:
+    1. A brief description of the current solution approach
+    2. The main problems with the current implementation
+    
+    Each bullet point MUST be one line only. Be extremely concise.
+    DO NOT provide general programming advice. Focus ONLY on specific issues with THIS implementation.
     """
     
     generation = trace.generation(
@@ -280,7 +278,7 @@ def update_memory(implementation: str, test_output: str, memory: Dict[str, Any])
     response = client.chat.completions.create(
         model=MODEL,
         messages=[
-            {"role": "system", "content": "You are an expert software engineer analyzing test results and implementation code. Your task is to identify key learnings from the implementation and test output that will be useful for future iterations. Focus on specific issues, bugs, and patterns rather than general programming principles."},
+            {"role": "system", "content": "You are an expert software engineer analyzing test results and implementation code. Provide extremely concise one-line bullet points about the current solution approach and main problems. No explanations or general advice."},
             {"role": "user", "content": memory_prompt}
         ]
     )
@@ -320,8 +318,8 @@ def generate_implementation(prompt: str, memory: Dict[str, Any], test_output: Op
         Your implementation should:
         1. Be self-contained in a single file
         2. Include comprehensive tests using unittest or pytest
-        3. Be well-documented with comments
-        4. Follow best practices for Python code
+        3. Use minimal comments - only add comments for complex logic that needs explanation
+        4. Follow best practices for Python code with clear variable names that are self-documenting
         5. Handle edge cases appropriately
         
         IMPORTANT: Your response must contain ONLY the Python code implementation, with no explanations, comments outside the code, or markdown formatting. Do not include any text like 'Here's the implementation' or 'This code does X'. Just provide the raw Python code that would be saved directly to a .py file.
@@ -349,8 +347,8 @@ def generate_implementation(prompt: str, memory: Dict[str, Any], test_output: Op
         Your implementation should:
         1. Be self-contained in a single file
         2. Include comprehensive tests using unittest or pytest
-        3. Be well-documented with comments
-        4. Follow best practices for Python code
+        3. Use minimal comments - only add comments for complex logic that needs explanation
+        4. Follow best practices for Python code with clear variable names that are self-documenting
         5. Handle edge cases appropriately
         6. Fix all issues identified in the test output
         
