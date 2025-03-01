@@ -62,7 +62,10 @@ def parse_arguments() -> str:
 
 
 def extract_code_from_response(response: str) -> str:
-    """Extract code from the response that is enclosed in ```python and ``` markers."""
+    """Extract code from the response that is enclosed in ```python and ``` markers.
+    If no markers are found, clean the response as best as possible.
+    """
+    # First, try to extract code from markdown code blocks
     pattern = r"```python\s*(.*?)\s*```"
     matches = re.findall(pattern, response, re.DOTALL)
     
@@ -72,10 +75,39 @@ def extract_code_from_response(response: str) -> str:
         matches = re.findall(pattern, response, re.DOTALL)
     
     if matches:
-        return matches[0]
+        # Join all code blocks if multiple are found
+        if len(matches) > 1:
+            print(f"Warning: Multiple code blocks found ({len(matches)}). Joining them.")
+        return '\n\n'.join(matches)
     
-    # If no code blocks found, return the entire response
-    return response
+    # If no code blocks found, clean the response
+    # Remove common prefixes that might indicate explanations
+    cleaned_response = response
+    prefixes_to_remove = [
+        r"^Here's the implementation:.*?\n",
+        r"^Here is the implementation:.*?\n",
+        r"^The implementation is:.*?\n",
+        r"^Here's the code:.*?\n",
+        r"^Here is the code:.*?\n",
+        r"^Implementation:.*?\n",
+        r"^Code:.*?\n"
+    ]
+    
+    for prefix in prefixes_to_remove:
+        cleaned_response = re.sub(prefix, "", cleaned_response, flags=re.IGNORECASE | re.DOTALL)
+    
+    # Remove trailing explanations
+    suffixes_to_remove = [
+        r"\nThis implementation.*$",
+        r"\nThe code above.*$",
+        r"\nIn this implementation.*$"
+    ]
+    
+    for suffix in suffixes_to_remove:
+        cleaned_response = re.sub(suffix, "", cleaned_response, flags=re.IGNORECASE | re.DOTALL)
+    
+    print("No code blocks found. Returning cleaned response.")
+    return cleaned_response
 
 
 def save_implementation(code: str, filename: str = IMPLEMENTATION_FILE) -> None:
@@ -85,9 +117,18 @@ def save_implementation(code: str, filename: str = IMPLEMENTATION_FILE) -> None:
     print(f"Implementation saved to {filename}")
 
 
-def run_tests(implementation_file: str = IMPLEMENTATION_FILE) -> Tuple[bool, str]:
-    """Run the tests in the implementation file and return results."""
+def run_tests(implementation_file: str = IMPLEMENTATION_FILE, prompt: str = None) -> Tuple[bool, str]:
+    """Run the tests in the implementation file and return results.
+    
+    Uses the Ollama model to determine if tests passed by analyzing the prompt,
+    code, and test output.
+    """
     try:
+        # Read the implementation code
+        with open(implementation_file, 'r') as file:
+            implementation_code = file.read()
+            
+        # Run the tests
         result = subprocess.run(
             ["python", implementation_file],
             capture_output=True,
@@ -95,13 +136,77 @@ def run_tests(implementation_file: str = IMPLEMENTATION_FILE) -> Tuple[bool, str
             timeout=30  # Set a timeout to prevent hanging
         )
         
-        # Check if all tests passed
-        all_tests_passed = "FAILED" not in result.stdout and result.returncode == 0
-        
         # Combine stdout and stderr for complete output
         output = result.stdout
         if result.stderr:
             output += "\n" + result.stderr
+            
+        # If there was an error running the code, it definitely failed
+        if result.returncode != 0:
+            return False, output
+            
+        # Use Ollama to determine if tests passed
+        trace = langfuse.trace(
+            name="evaluate_tests",
+            metadata={"returncode": result.returncode}
+        )
+        
+        test_evaluation_prompt = f"""
+        You are an expert Python developer evaluating test results.
+        
+        Original specification:
+        {prompt}
+        
+        Implementation code:
+        ```python
+        {implementation_code}
+        ```
+        
+        Test output:
+        ```
+        {output}
+        ```
+        
+        Based on the specification, implementation, and test output, determine if ALL tests have passed.
+        Consider the following:
+        1. Are there any explicit test failures mentioned in the output?
+        2. Are there any exceptions or errors in the output?
+        3. Does the implementation satisfy all requirements from the specification?
+        4. Are all edge cases properly tested and passing?
+        
+        Respond with ONLY 'PASSED' or 'FAILED' followed by a brief explanation.
+        """
+        
+        generation = trace.generation(
+            name="test_evaluation",
+            model=MODEL,
+            input={
+                "prompt": test_evaluation_prompt,
+                "test_output": output, 
+                "implementation": implementation_code
+            }
+        )
+        
+        response = client.chat.completions.create(
+            model=MODEL,
+            messages=[
+                {"role": "system", "content": "You are an expert Python developer evaluating test results. Your task is to determine if all tests have passed based on the implementation, specification, and test output. Respond with ONLY 'PASSED' or 'FAILED' followed by a brief explanation."},
+                {"role": "user", "content": test_evaluation_prompt}
+            ]
+        )
+        
+        evaluation = response.choices[0].message.content
+        
+        generation.end(
+            output=evaluation,
+            metadata={"returncode": result.returncode}
+        )
+        
+        # Determine if tests passed based on the model's evaluation
+        all_tests_passed = evaluation.strip().startswith("PASSED")
+        
+        # Add the evaluation to the output
+        output += "\n\nModel Evaluation: " + evaluation
             
         return all_tests_passed, output
     except subprocess.TimeoutExpired:
@@ -139,10 +244,12 @@ def update_memory(implementation: str, test_output: str, memory: Dict[str, Any])
     You are an AI software engineer analyzing test results and implementation code.
     Based on the implementation and test output, identify key learnings that would be useful for future iterations.
     Focus on:
-    1. What worked well
-    2. What didn't work
-    3. Specific bugs or issues identified
-    4. Patterns or techniques that should be applied or avoided
+    1. Specific bugs or issues identified in the code
+    2. Test failures and their causes
+    3. Edge cases that need to be handled
+    4. Specific improvements needed in the implementation
+    
+    DO NOT provide general programming principles or advice. Focus ONLY on specific issues with THIS implementation.
     
     Implementation:
     ```python
@@ -157,20 +264,23 @@ def update_memory(implementation: str, test_output: str, memory: Dict[str, Any])
     Previous Learnings:
     {memory.get("learnings", [])}
     
-    Provide a concise list of new learnings that should be remembered for future iterations.
+    Provide a concise list of 3-5 specific learnings that should be remembered for future iterations. Each learning should directly relate to fixing issues in the current implementation.
     """
     
     generation = trace.generation(
         name="memory_update",
         model=MODEL,
-        prompt=memory_prompt,
-        input={"implementation": implementation, "test_output": test_output}
+        input={
+            "prompt": memory_prompt,
+            "implementation": implementation, 
+            "test_output": test_output
+        }
     )
     
     response = client.chat.completions.create(
         model=MODEL,
         messages=[
-            {"role": "system", "content": "You are an expert software engineer analyzing test results and implementation code."},
+            {"role": "system", "content": "You are an expert software engineer analyzing test results and implementation code. Your task is to identify key learnings from the implementation and test output that will be useful for future iterations. Focus on specific issues, bugs, and patterns rather than general programming principles."},
             {"role": "user", "content": memory_prompt}
         ]
     )
@@ -209,12 +319,14 @@ def generate_implementation(prompt: str, memory: Dict[str, Any], test_output: Op
         
         Your implementation should:
         1. Be self-contained in a single file
-        2. Include comprehensive tests
+        2. Include comprehensive tests using unittest or pytest
         3. Be well-documented with comments
         4. Follow best practices for Python code
         5. Handle edge cases appropriately
         
-        Return ONLY the Python code without any explanations or markdown formatting.
+        IMPORTANT: Your response must contain ONLY the Python code implementation, with no explanations, comments outside the code, or markdown formatting. Do not include any text like 'Here's the implementation' or 'This code does X'. Just provide the raw Python code that would be saved directly to a .py file.
+        
+        The implementation should be complete and runnable as-is, with no placeholders or TODO comments.
         """
     else:
         # Subsequent iterations with memory and test output
@@ -236,26 +348,32 @@ def generate_implementation(prompt: str, memory: Dict[str, Any], test_output: Op
         
         Your implementation should:
         1. Be self-contained in a single file
-        2. Include comprehensive tests
+        2. Include comprehensive tests using unittest or pytest
         3. Be well-documented with comments
         4. Follow best practices for Python code
         5. Handle edge cases appropriately
         6. Fix all issues identified in the test output
         
-        Return ONLY the Python code without any explanations or markdown formatting.
+        IMPORTANT: Your response must contain ONLY the Python code implementation, with no explanations, comments outside the code, or markdown formatting. Do not include any text like 'Here's the implementation' or 'This code does X'. Just provide the raw Python code that would be saved directly to a .py file.
+        
+        The implementation should be complete and runnable as-is, with no placeholders or TODO comments.
         """
     
     generation = trace.generation(
         name="code_generation",
         model=MODEL,
-        prompt=implementation_prompt,
-        input={"spec": prompt, "test_output": test_output, "memory": memory}
+        input={
+            "prompt": implementation_prompt,
+            "spec": prompt, 
+            "test_output": test_output, 
+            "memory": memory
+        }
     )
     
     response = client.chat.completions.create(
         model=MODEL,
         messages=[
-            {"role": "system", "content": "You are an expert Python developer."},
+            {"role": "system", "content": "You are an expert Python developer. Your task is to write Python code that implements the given specification. Return ONLY the Python code with no explanations, markdown formatting, or text outside of the code itself. The code should be complete, runnable, and include tests."},
             {"role": "user", "content": implementation_prompt}
         ]
     )
@@ -301,7 +419,7 @@ def main():
         
         # Run tests
         print("Running tests...")
-        all_tests_passed, test_output = run_tests()
+        all_tests_passed, test_output = run_tests(prompt=prompt)
         print(f"Tests {'PASSED' if all_tests_passed else 'FAILED'}")
         print("Test output:")
         print("-" * 40)
