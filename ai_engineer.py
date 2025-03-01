@@ -157,12 +157,9 @@ def run_tests(implementation_file: str = IMPLEMENTATION_FILE, prompt: str = None
         )
         
         test_evaluation_prompt = f"""
-        You are an expert Python developer evaluating test results.
+        Spec: {prompt}
         
-        Original specification:
-        {prompt}
-        
-        Implementation code:
+        Code:
         ```python
         {implementation_code}
         ```
@@ -172,9 +169,7 @@ def run_tests(implementation_file: str = IMPLEMENTATION_FILE, prompt: str = None
         {output}
         ```
         
-        Based on the specification, implementation, and test output, determine if ALL tests have passed.
-        
-        Respond with ONLY 'PASSED' or 'FAILED' followed by a one-sentence explanation.
+        Did ALL tests pass? Answer ONLY 'PASSED' or 'FAILED'.
         """
         
         generation = trace.generation(
@@ -190,7 +185,7 @@ def run_tests(implementation_file: str = IMPLEMENTATION_FILE, prompt: str = None
         response = client.chat.completions.create(
             model=MODEL,
             messages=[
-                {"role": "system", "content": "You are an expert Python developer evaluating test results. Your task is to determine if all tests have passed based on the implementation, specification, and test output. Respond with ONLY 'PASSED' or 'FAILED' followed by a brief explanation."},
+                {"role": "system", "content": "Evaluate if tests passed. Respond with ONLY 'PASSED' or 'FAILED'."},
                 {"role": "user", "content": test_evaluation_prompt}
             ]
         )
@@ -241,9 +236,6 @@ def update_memory(implementation: str, test_output: str, memory: Dict[str, Any])
     )
     
     memory_prompt = f"""
-    You are an AI software engineer analyzing test results and implementation code.
-    Based on the implementation and test output, identify key learnings that would be useful for future iterations.
-    
     Implementation:
     ```python
     {implementation}
@@ -254,15 +246,9 @@ def update_memory(implementation: str, test_output: str, memory: Dict[str, Any])
     {test_output}
     ```
     
-    Previous Learnings:
-    {memory.get("learnings", [])}
-    
-    Provide ONLY 2-3 one-line bullet points that describe:
-    1. A brief description of the current solution approach
-    2. The main problems with the current implementation
-    
-    Each bullet point MUST be one line only. Be extremely concise.
-    DO NOT provide general programming advice. Focus ONLY on specific issues with THIS implementation.
+    Give 1-2 one-line bullet points about:
+    1. Main issue with this code
+    2. How to fix it
     """
     
     generation = trace.generation(
@@ -278,7 +264,7 @@ def update_memory(implementation: str, test_output: str, memory: Dict[str, Any])
     response = client.chat.completions.create(
         model=MODEL,
         messages=[
-            {"role": "system", "content": "You are an expert software engineer analyzing test results and implementation code. Provide extremely concise one-line bullet points about the current solution approach and main problems. No explanations or general advice."},
+            {"role": "system", "content": "Identify main code issues and fixes in one-line bullet points."},
             {"role": "user", "content": memory_prompt}
         ]
     )
@@ -311,50 +297,33 @@ def generate_implementation(prompt: str, memory: Dict[str, Any], test_output: Op
     if memory["iterations"] == 0:
         # First iteration
         implementation_prompt = f"""
-        You are an expert Python developer. Write a complete Python implementation that satisfies this specification:
-        
+        Write Python code for this spec:
         {prompt}
         
-        Your implementation should:
-        1. Be self-contained in a single file
-        2. Include comprehensive tests using unittest or pytest
-        3. Use minimal comments - only add comments for complex logic that needs explanation
-        4. Follow best practices for Python code with clear variable names that are self-documenting
-        5. Handle edge cases appropriately
+        Include:
+        - Simple unittest tests
+        - Minimal comments
+        - Handle edge cases
         
-        IMPORTANT: Your response must contain ONLY the Python code implementation, with no explanations, comments outside the code, or markdown formatting. Do not include any text like 'Here's the implementation' or 'This code does X'. Just provide the raw Python code that would be saved directly to a .py file.
-        
-        The implementation should be complete and runnable as-is, with no placeholders or TODO comments.
+        Return ONLY code, no explanations.
         """
     else:
         # Subsequent iterations with memory and test output
         learnings = "\n".join([f"{i+1}. {item['learning']}" for i, item in enumerate(memory["learnings"])])
         
         implementation_prompt = f"""
-        You are an expert Python developer. Improve the implementation based on test results and learnings.
+        Fix this code based on test results:
         
-        Original specification:
-        {prompt}
+        Spec: {prompt}
         
-        Test output from previous iteration:
+        Test output:
         ```
         {test_output}
         ```
         
-        Learnings from previous iterations:
-        {learnings}
+        Learnings: {learnings}
         
-        Your implementation should:
-        1. Be self-contained in a single file
-        2. Include comprehensive tests using unittest or pytest
-        3. Use minimal comments - only add comments for complex logic that needs explanation
-        4. Follow best practices for Python code with clear variable names that are self-documenting
-        5. Handle edge cases appropriately
-        6. Fix all issues identified in the test output
-        
-        IMPORTANT: Your response must contain ONLY the Python code implementation, with no explanations, comments outside the code, or markdown formatting. Do not include any text like 'Here's the implementation' or 'This code does X'. Just provide the raw Python code that would be saved directly to a .py file.
-        
-        The implementation should be complete and runnable as-is, with no placeholders or TODO comments.
+        Return ONLY fixed code with tests.
         """
     
     generation = trace.generation(
@@ -371,7 +340,7 @@ def generate_implementation(prompt: str, memory: Dict[str, Any], test_output: Op
     response = client.chat.completions.create(
         model=MODEL,
         messages=[
-            {"role": "system", "content": "You are an expert Python developer. Your task is to write Python code that implements the given specification. Return ONLY the Python code with no explanations, markdown formatting, or text outside of the code itself. The code should be complete, runnable, and include tests."},
+            {"role": "system", "content": "Write Python code with correct syntax and indentation. Return ONLY code, no explanations."},
             {"role": "user", "content": implementation_prompt}
         ]
     )
