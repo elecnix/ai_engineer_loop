@@ -1,0 +1,6 @@
+Create a Python function called 'fibonacci' that calculates the nth Fibonacci number.
+The function should use memoization to optimize performance for large values of n.
+Include comprehensive tests that verify the function works correctly for various inputs,
+including edge cases like n=0 and n=1.
+The tests should also verify that the function raises appropriate exceptions for invalid inputs,
+such as negative numbers or non-integer values.
