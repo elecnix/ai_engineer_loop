@@ -35,7 +35,7 @@ client = OpenAI(
 )
 
 # Constants
-MODEL = "deepseek-coder"
+MODEL = "llama3.2:3b"
 MEMORY_FILE = "memory.json"
 IMPLEMENTATION_FILE = "implementation.py"
 MAX_ITERATIONS = 3  # Maximum number of iterations to prevent infinite loops
@@ -169,7 +169,7 @@ def run_tests(implementation_file: str = IMPLEMENTATION_FILE, prompt: str = None
         {output}
         ```
         
-        Did ALL tests pass? Answer ONLY 'PASSED' or 'FAILED'.
+        Did ALL tests pass? Answer ONLY '<PASSED>' or '<FAILED>'.
         """
         
         generation = trace.generation(
@@ -185,7 +185,7 @@ def run_tests(implementation_file: str = IMPLEMENTATION_FILE, prompt: str = None
         response = client.chat.completions.create(
             model=MODEL,
             messages=[
-                {"role": "system", "content": "Evaluate if tests passed. Respond with ONLY 'PASSED' or 'FAILED'."},
+                {"role": "system", "content": "Evaluate if tests passed. Respond with ONLY '<PASSED>' or '<FAILED>'."},
                 {"role": "user", "content": test_evaluation_prompt}
             ]
         )
@@ -198,7 +198,7 @@ def run_tests(implementation_file: str = IMPLEMENTATION_FILE, prompt: str = None
         )
         
         # Determine if tests passed based on the model's evaluation
-        all_tests_passed = evaluation.strip().startswith("PASSED")
+        all_tests_passed = "<PASSED>" in evaluation.strip()
         
         # Add the evaluation to the output
         output += "\n\nModel Evaluation: " + evaluation
