@@ -366,9 +366,6 @@ def main():
         # Load memory
         memory = load_memory()
         
-        # Track metrics
-        syntax_errors = 0
-        runtime_errors = 0
         
         print(f"\n🚀 Starting AI Software Engineer Loop with {MODEL} model")
         print(f"Implementation file: {IMPLEMENTATION_FILE}")
@@ -396,11 +393,6 @@ def main():
             print("Running tests...")
             all_tests_passed, test_output = run_tests(prompt=prompt)
             
-            # Check for syntax or runtime errors
-            if "SyntaxError" in test_output:
-                syntax_errors += 1
-            elif "Error" in test_output or "Exception" in test_output:
-                runtime_errors += 1
                 
             print(f"Tests {'PASSED ✅' if all_tests_passed else 'FAILED ❌'}")
             print("Test output:")
@@ -422,8 +414,6 @@ def main():
         print(f"- Model: {MODEL}")
         print(f"- Iterations completed: {iteration}/{MAX_ITERATIONS}")
         print(f"- Tests passed: {'Yes ✅' if all_tests_passed else 'No ❌'}")
-        print(f"- Syntax errors encountered: {syntax_errors}")
-        print(f"- Runtime errors encountered: {runtime_errors}")
         
         if iteration >= MAX_ITERATIONS and not all_tests_passed:
             print(f"\n⚠️ Reached maximum iterations ({MAX_ITERATIONS}). Stopping.")

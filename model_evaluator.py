@@ -121,16 +121,12 @@ def run_model_evaluation(model: str, run: int, prompt_path: str) -> Dict[str, An
         # Check if tests passed
         passed = "All tests passed!" in output
         
-        # Count syntax errors
-        syntax_errors = output.count("SyntaxError")
-        
         # Save the output to a log file
         with open(os.path.join(paths["run_dir"], "output.log"), 'w') as f:
             f.write(output)
         
         return {
             "passed": passed,
-            "syntax_errors": syntax_errors,
             "exit_code": result.returncode,
             "output_path": os.path.join(paths["run_dir"], "output.log")
         }
@@ -138,7 +134,6 @@ def run_model_evaluation(model: str, run: int, prompt_path: str) -> Dict[str, An
         print(f"Error running evaluation: {e}")
         return {
             "passed": False,
-            "syntax_errors": 0,
             "exit_code": -1,
             "error": str(e)
         }
@@ -193,8 +188,7 @@ def main():
             if model not in results["models_evaluated"]:
                 results["models_evaluated"][model] = {
                     "runs": {},
-                    "pass_rate": 0.0,
-                    "syntax_error_rate": 0.0
+                    "pass_rate": 0.0
                 }
             
             # Set current model
@@ -216,11 +210,7 @@ def main():
                 passed_runs = sum(1 for r in results["models_evaluated"][model]["runs"].values() if r.get("passed", False))
                 total_runs = len(results["models_evaluated"][model]["runs"])
                 results["models_evaluated"][model]["pass_rate"] = passed_runs / total_runs if total_runs > 0 else 0.0
-                
-                # Update syntax error rate
-                syntax_errors = sum(r.get("syntax_errors", 0) for r in results["models_evaluated"][model]["runs"].values())
-                results["models_evaluated"][model]["syntax_error_rate"] = syntax_errors / total_runs if total_runs > 0 else 0.0
-                
+          
                 # Save results after each run
                 save_results(results)
                 
