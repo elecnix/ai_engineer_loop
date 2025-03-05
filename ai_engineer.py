@@ -287,13 +287,31 @@ def save_conversation(conversation: List[Dict[str, str]], filename: str) -> None
 
 
 def save_usage_data(usage_data: List[Dict[str, Any]], filename: Optional[str] = None) -> None:
-    """Save usage data to a JSON file."""
+    """Save usage data to a JSON file with computed totals."""
     if not filename:
         return  # Skip saving if no filename is provided
-        
+    
+    # Compute totals
+    total_tokens = sum(entry.get("usage", {}).get("total_tokens", 0) for entry in usage_data if entry.get("usage"))
+    total_prompt_tokens = sum(entry.get("usage", {}).get("prompt_tokens", 0) for entry in usage_data if entry.get("usage"))
+    total_completion_tokens = sum(entry.get("usage", {}).get("completion_tokens", 0) for entry in usage_data if entry.get("usage"))
+    total_duration = sum(entry.get("duration_seconds", 0) for entry in usage_data)
+    
+    # Create a dictionary with usage data and totals
+    data_with_totals = {
+        "entries": usage_data,
+        "totals": {
+            "total_api_calls": len(usage_data),
+            "total_tokens": total_tokens,
+            "total_prompt_tokens": total_prompt_tokens,
+            "total_completion_tokens": total_completion_tokens,
+            "total_duration_seconds": round(total_duration, 2)
+        }
+    }
+    
     try:
         with open(filename, 'w') as file:
-            json.dump(usage_data, file, indent=2)
+            json.dump(data_with_totals, file, indent=2)
         print(f"Usage data saved to {filename}")
     except Exception as e:
         print(f"Error saving usage data: {str(e)}")
@@ -307,7 +325,15 @@ def load_usage_data(filename: Optional[str] = None) -> List[Dict[str, Any]]:
     try:
         if os.path.exists(filename):
             with open(filename, 'r') as file:
-                return json.load(file)
+                data = json.load(file)
+                # Handle both old format (list) and new format (dict with entries)
+                if isinstance(data, dict) and "entries" in data:
+                    return data["entries"]
+                elif isinstance(data, list):
+                    return data
+                else:
+                    print(f"Warning: Unexpected format in usage data file. Starting with empty data.")
+                    return []
         return []
     except Exception as e:
         print(f"Error loading usage data: {str(e)}")
@@ -490,16 +516,34 @@ def main():
         print(f"- Tests passed: {'Yes ✅' if all_tests_passed else 'No ❌'}")
         
         # Print usage summary if usage tracking is enabled
-        if usage_data:
-            total_tokens = sum(entry.get("usage", {}).get("total_tokens", 0) for entry in usage_data if entry.get("usage"))
-            total_prompt_tokens = sum(entry.get("usage", {}).get("prompt_tokens", 0) for entry in usage_data if entry.get("usage"))
-            total_completion_tokens = sum(entry.get("usage", {}).get("completion_tokens", 0) for entry in usage_data if entry.get("usage"))
+        if usage_data and usage_file:
+            # Save the final usage data to get the updated totals
+            save_usage_data(usage_data, usage_file)
             
-            print("\n📈 Usage Summary:")
-            print(f"- Total API calls: {len(usage_data)}")
-            print(f"- Total tokens used: {total_tokens}")
-            print(f"- Total prompt tokens: {total_prompt_tokens}")
-            print(f"- Total completion tokens: {total_completion_tokens}")
+            # Load the saved file to get the totals
+            try:
+                with open(usage_file, 'r') as file:
+                    data = json.load(file)
+                    if isinstance(data, dict) and "totals" in data:
+                        totals = data["totals"]
+                        
+                        print("\n📈 Usage Summary:")
+                        print(f"- Total API calls: {totals.get('total_api_calls', len(usage_data))}")
+                        print(f"- Total tokens used: {totals.get('total_tokens', 0)}")
+                        print(f"- Total prompt tokens: {totals.get('total_prompt_tokens', 0)}")
+                        print(f"- Total completion tokens: {totals.get('total_completion_tokens', 0)}")
+                        print(f"- Total duration: {totals.get('total_duration_seconds', 0)} seconds")
+            except Exception as e:
+                # Fallback to calculating totals directly if there's an issue with the file
+                total_tokens = sum(entry.get("usage", {}).get("total_tokens", 0) for entry in usage_data if entry.get("usage"))
+                total_prompt_tokens = sum(entry.get("usage", {}).get("prompt_tokens", 0) for entry in usage_data if entry.get("usage"))
+                total_completion_tokens = sum(entry.get("usage", {}).get("completion_tokens", 0) for entry in usage_data if entry.get("usage"))
+                
+                print("\n📈 Usage Summary:")
+                print(f"- Total API calls: {len(usage_data)}")
+                print(f"- Total tokens used: {total_tokens}")
+                print(f"- Total prompt tokens: {total_prompt_tokens}")
+                print(f"- Total completion tokens: {total_completion_tokens}")
         
         if iteration >= max_iterations and not all_tests_passed:
             print(f"\n⚠️ Reached maximum iterations ({max_iterations}). Stopping.")
