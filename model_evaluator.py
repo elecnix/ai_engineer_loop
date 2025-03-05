@@ -17,7 +17,8 @@ from typing import Dict, List, Any
 from pathlib import Path
 
 # Import the AI engineer module
-from ai_engineer import run_tests, parse_arguments, load_memory, save_memory, extract_code_from_response
+import ai_engineer
+from ai_engineer import run_tests, parse_arguments, load_conversation, save_conversation, extract_code_from_response
 
 
 # Constants
@@ -25,7 +26,7 @@ RESULTS_FILE = "model_evaluation_results.json"
 MAX_RUNS_PER_MODEL = 1  # Reduced from 5 for faster testing
 MAX_ITERATIONS_PER_RUN = 3
 IMPLEMENTATION_FILE = "implementation.py"
-MEMORY_FILE = "memory.json"
+CONVERSATION_FILE = "conversation.json"
 
 def get_available_models() -> List[str]:
     """Get a list of available Ollama models."""
@@ -83,7 +84,7 @@ def setup_directories(model: str, run: int) -> Dict[str, str]:
         "model_dir": str(model_dir),
         "run_dir": str(run_dir),
         "implementation_path": str(run_dir / IMPLEMENTATION_FILE),
-        "memory_path": str(run_dir / MEMORY_FILE)
+        "conversation_path": str(run_dir / CONVERSATION_FILE)
     }
 
 def run_model_evaluation(model: str, run: int, prompt_path: str) -> Dict[str, Any]:
@@ -95,22 +96,21 @@ def run_model_evaluation(model: str, run: int, prompt_path: str) -> Dict[str, An
     # Setup directories
     paths = setup_directories(model, run)
     
-    # Create clean memory file
-    memory = {"learnings": [], "iterations": 0}
-    with open(paths["memory_path"], 'w') as f:
-        json.dump(memory, f, indent=2)
-    
     # Set environment variables for the subprocess
     env = os.environ.copy()
-    env["MODEL"] = model
+    env["OLLAMA_MODEL"] = model
     env["IMPLEMENTATION_FILE"] = paths["implementation_path"]
-    env["MEMORY_FILE"] = paths["memory_path"]
+    env["CONVERSATION_FILE"] = paths["conversation_path"]
     env["MAX_ITERATIONS"] = str(MAX_ITERATIONS_PER_RUN)
+    
+    # Create empty conversation file
+    with open(paths["conversation_path"], 'w') as f:
+        json.dump([], f, indent=2)
     
     # Run the AI engineer process
     try:
         result = subprocess.run(
-            ["python", "ai_engineer.py", prompt_path],
+            ["python3", "ai_engineer.py", prompt_path],
             capture_output=True,
             text=True,
             env=env
@@ -125,10 +125,21 @@ def run_model_evaluation(model: str, run: int, prompt_path: str) -> Dict[str, An
         with open(os.path.join(paths["run_dir"], "output.log"), 'w') as f:
             f.write(output)
         
+        # Get iterations count
+        iterations = 0
+        try:
+            with open(paths["conversation_path"], 'r') as f:
+                conversation = json.load(f)
+                # Each iteration has 2 messages (assistant + user)
+                iterations = len(conversation) // 2
+        except Exception as e:
+            print(f"Error reading conversation file: {e}")
+        
         return {
             "passed": passed,
             "exit_code": result.returncode,
-            "output_path": os.path.join(paths["run_dir"], "output.log")
+            "output_path": os.path.join(paths["run_dir"], "output.log"),
+            "iterations": iterations
         }
     except Exception as e:
         print(f"Error running evaluation: {e}")
@@ -226,6 +237,7 @@ def main():
                 
                 # Print progress
                 print(f"\nModel: {model} - Run {run}/{MAX_RUNS_PER_MODEL} - {'PASSED' if run_result['passed'] else 'FAILED'}")
+                print(f"Iterations: {run_result.get('iterations', 'unknown')}")
                 print(f"Current pass rate: {results['models_evaluated'][model]['pass_rate']:.2%}")
             
             # Reset start run for next model

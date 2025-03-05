@@ -16,8 +16,8 @@ from pathlib import Path
 from ai_engineer import (
     extract_code_from_response,
     save_implementation,
-    load_memory,
-    save_memory,
+    load_conversation,
+    save_conversation,
     parse_arguments
 )
 
@@ -302,54 +302,52 @@ class TestSaveImplementation(unittest.TestCase):
         self.assertEqual(content, code)
 
 
-class TestMemoryFunctions(unittest.TestCase):
-    """Test the memory-related functions."""
+class TestConversationFunctions(unittest.TestCase):
+    """Test the conversation-related functions."""
 
     def setUp(self):
         """Set up temporary directory for file operations."""
         self.temp_dir = tempfile.TemporaryDirectory()
         self.temp_path = Path(self.temp_dir.name)
-        self.memory_file = self.temp_path / "test_memory.json"
+        self.conversation_file = self.temp_path / "test_conversation.json"
 
     def tearDown(self):
         """Clean up temporary directory."""
         self.temp_dir.cleanup()
 
-    def test_save_and_load_memory(self):
-        """Test saving and loading memory."""
-        # Check if save_memory accepts a filename parameter
+    def test_save_and_load_conversation(self):
+        """Test saving and loading conversation."""
+        # Check if save_conversation accepts a filename parameter
         import inspect
-        sig = inspect.signature(save_memory)
+        sig = inspect.signature(save_conversation)
         has_filename_param = len(sig.parameters) > 1
         
-        memory = {
-            "learnings": [
-                {"iteration": 1, "learning": "Use memoization for fibonacci."}
-            ],
-            "iterations": 1
-        }
+        conversation = [
+            {"role": "user", "content": "Implement a fibonacci function"},
+            {"role": "assistant", "content": "Here's a fibonacci implementation"}
+        ]
         
-        # Save memory to file - handle both function signatures
+        # Save conversation to file - handle both function signatures
         if has_filename_param:
-            save_memory(memory, str(self.memory_file))
+            save_conversation(conversation, str(self.conversation_file))
         else:
-            # If save_memory doesn't take a filename parameter, we'll skip this test
-            self.skipTest("save_memory doesn't accept a filename parameter")
+            # If save_conversation doesn't take a filename parameter, we'll skip this test
+            self.skipTest("save_conversation doesn't accept a filename parameter")
         
         # Verify file exists
-        self.assertTrue(self.memory_file.exists())
+        self.assertTrue(self.conversation_file.exists())
         
-        # Check if load_memory accepts a filename parameter
-        sig = inspect.signature(load_memory)
+        # Check if load_conversation accepts a filename parameter
+        sig = inspect.signature(load_conversation)
         has_filename_param = len(sig.parameters) > 0
         
         if has_filename_param:
-            # Load memory from file
-            loaded_memory = load_memory(str(self.memory_file))
-            # Verify loaded memory matches original
-            self.assertEqual(loaded_memory, memory)
+            # Load conversation from file
+            loaded_conversation = load_conversation(str(self.conversation_file))
+            # Verify loaded conversation matches original
+            self.assertEqual(loaded_conversation, conversation)
         else:
-            # If load_memory doesn't take a filename parameter, we'll skip this part
+            # If load_conversation doesn't take a filename parameter, we'll skip this part
             pass
 
 
