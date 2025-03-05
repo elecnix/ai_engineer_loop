@@ -206,14 +206,28 @@ def main():
     start_run = 1
     
     if args.resume and results["current_model"]:
+        # Check if the current model from results is in the list of models to evaluate
         if results["current_model"] in models_to_evaluate:
-            start_model_idx = models_to_evaluate.index(results["current_model"])
-            start_run = results["current_run"] + 1
-            if start_run > MAX_RUNS_PER_MODEL:
-                start_model_idx += 1
-                start_run = 1
+            # Get the index of the current model
+            current_model_idx = models_to_evaluate.index(results["current_model"])
+            current_run = results["current_run"]
             
-            print(f"Resuming from model {results['current_model']} run {start_run}")
+            # If we're in the middle of runs for the current model
+            if current_run < MAX_RUNS_PER_MODEL:
+                # Continue with the current model, next run
+                start_model_idx = current_model_idx
+                start_run = current_run  # We'll continue with the current run (the loop will increment)
+                print(f"Resuming with model {results['current_model']} run {current_run}")
+            else:
+                # We've completed all runs for this model, move to the next model
+                start_model_idx = current_model_idx + 1
+                start_run = 1
+                
+                if start_model_idx < len(models_to_evaluate):
+                    next_model = models_to_evaluate[start_model_idx]
+                    print(f"All runs completed for {results['current_model']}, moving to {next_model}")
+                else:
+                    print(f"All runs completed for {results['current_model']}, no more models to evaluate")
     
     # Evaluate models
     try:
@@ -235,9 +249,14 @@ def main():
             # Set current model
             results["current_model"] = model
             
+            # Reset start_run after the first model
+            if i > start_model_idx:
+                start_run = 1
+                
             # Run evaluations
             for run in range(start_run, MAX_RUNS_PER_MODEL + 1):
-                # Update current run
+                # Store the current run before execution
+                # This way, if interrupted, we'll resume from this exact run
                 results["current_run"] = run
                 save_results(results)
                 
