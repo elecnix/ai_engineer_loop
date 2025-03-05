@@ -13,6 +13,7 @@ import json
 import argparse
 import subprocess
 import re
+import time
 from typing import Dict, List, Tuple, Optional, Any
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -42,24 +43,33 @@ IMPLEMENTATION_FILE = os.environ.get("IMPLEMENTATION_FILE", "implementation.py")
 MAX_ITERATIONS = int(os.environ.get("MAX_ITERATIONS", "3"))  # Maximum number of iterations to prevent infinite loops
 
 
-def parse_arguments() -> str:
+def parse_arguments():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description="AI Software Engineer Loop")
     parser.add_argument("prompt", nargs="?", help="Software spec prompt or file containing the prompt")
+    parser.add_argument("--usage-file", "-u", help="File to save API usage data (if not specified, usage data won't be tracked)")
+    parser.add_argument("--model", "-m", help=f"Model to use (default: {MODEL})")
+    parser.add_argument("--implementation-file", "-i", help=f"File to save implementation (default: {IMPLEMENTATION_FILE})")
+    parser.add_argument("--conversation-file", "-c", help=f"File to save conversation (default: {CONVERSATION_FILE})")
+    parser.add_argument("--max-iterations", type=int, help=f"Maximum number of iterations (default: {MAX_ITERATIONS})")
     args = parser.parse_args()
 
-    # If prompt is provided as an argument
+    # Get prompt
+    prompt_text = ""
     if args.prompt:
         # Check if it's a file
         if os.path.isfile(args.prompt):
             with open(args.prompt, 'r') as file:
-                return file.read()
+                prompt_text = file.read()
         # Otherwise, treat it as a direct prompt
-        return args.prompt
+        else:
+            prompt_text = args.prompt
+    else:
+        # If no prompt is provided, read from stdin
+        print("Enter software spec prompt (Ctrl+D to finish):")
+        prompt_text = sys.stdin.read()
     
-    # If no prompt is provided, read from stdin
-    print("Enter software spec prompt (Ctrl+D to finish):")
-    return sys.stdin.read()
+    return args, prompt_text
 
 
 def extract_code_from_response(response: str) -> str:
@@ -140,14 +150,14 @@ def remove_trailing_notes(code: str) -> str:
     return code.strip()
 
 
-def save_implementation(code: str, filename: str = IMPLEMENTATION_FILE) -> None:
+def save_implementation(code: str, filename: str) -> None:
     """Save the implementation code to a file."""
     with open(filename, 'w') as file:
         file.write(code)
     print(f"Implementation saved to {filename}")
 
 
-def run_tests(implementation_file: str = IMPLEMENTATION_FILE, prompt: str = None) -> Tuple[bool, str]:
+def run_tests(implementation_file: str, prompt: str = None) -> Tuple[bool, str]:
     """Run the tests in the implementation file and return results.
     
     Uses the Ollama model to determine if tests passed by analyzing the prompt,
@@ -255,28 +265,56 @@ def run_tests(implementation_file: str = IMPLEMENTATION_FILE, prompt: str = None
         return False, f"Error running tests: {str(e)}"
 
 
-def load_conversation() -> List[Dict[str, str]]:
+def load_conversation(filename: str) -> List[Dict[str, str]]:
     """Load the conversation history from file if it exists."""
-    if os.path.exists(CONVERSATION_FILE):
+    if os.path.exists(filename):
         try:
-            with open(CONVERSATION_FILE, 'r') as file:
+            with open(filename, 'r') as file:
                 return json.load(file)
         except json.JSONDecodeError:
             print(f"Error reading conversation file. Starting with empty conversation.")
     return []
 
 
-def save_conversation(conversation: List[Dict[str, str]]) -> None:
+def save_conversation(conversation: List[Dict[str, str]], filename: str) -> None:
     """Save the conversation history to a file."""
-    with open(CONVERSATION_FILE, 'w') as file:
+    with open(filename, 'w') as file:
         json.dump(conversation, file, indent=2)
-    print(f"Conversation saved to {CONVERSATION_FILE}")
+    print(f"Conversation saved to {filename}")
 
 
 
 
 
-def generate_implementation(prompt: str, conversation: List[Dict[str, str]]) -> str:
+def save_usage_data(usage_data: List[Dict[str, Any]], filename: Optional[str] = None) -> None:
+    """Save usage data to a JSON file."""
+    if not filename:
+        return  # Skip saving if no filename is provided
+        
+    try:
+        with open(filename, 'w') as file:
+            json.dump(usage_data, file, indent=2)
+        print(f"Usage data saved to {filename}")
+    except Exception as e:
+        print(f"Error saving usage data: {str(e)}")
+
+
+def load_usage_data(filename: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Load usage data from a JSON file if it exists."""
+    if not filename:
+        return []  # Return empty list if no filename is provided
+        
+    try:
+        if os.path.exists(filename):
+            with open(filename, 'r') as file:
+                return json.load(file)
+        return []
+    except Exception as e:
+        print(f"Error loading usage data: {str(e)}")
+        return []
+
+
+def generate_implementation(prompt: str, conversation: List[Dict[str, str]], usage_data: Optional[List[Dict[str, Any]]] = None) -> str:
     """Generate implementation based on the prompt and conversation history."""
     trace = langfuse.trace(
         name="generate_implementation",
@@ -304,19 +342,72 @@ def generate_implementation(prompt: str, conversation: List[Dict[str, str]]) -> 
         input=messages
     )
     
+    # Record start time
+    start_time = time.time()
+    
     # Call the API
     response = client.chat.completions.create(
         model=MODEL,
         messages=messages
     )
     
+    # Record end time
+    end_time = time.time()
+    
     implementation = response.choices[0].message.content
     code = extract_code_from_response(implementation)
+    
+    # Capture usage data
+    usage_entry = {
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "iteration": len(conversation) // 2 + 1 if conversation else 1,
+        "model": MODEL,
+        "duration_seconds": round(end_time - start_time, 2),
+        "usage": None
+    }
+    
+    # Add usage information if available
+    if hasattr(response, 'usage') and response.usage:
+        usage_entry["usage"] = {
+            "prompt_tokens": response.usage.prompt_tokens,
+            "completion_tokens": response.usage.completion_tokens,
+            "total_tokens": response.usage.total_tokens
+        }
+        
+        # Add detailed token information if available
+        if hasattr(response.usage, 'prompt_tokens_details') and response.usage.prompt_tokens_details:
+            prompt_details = {}
+            if response.usage.prompt_tokens_details.audio_tokens:
+                prompt_details["audio_tokens"] = response.usage.prompt_tokens_details.audio_tokens
+            if response.usage.prompt_tokens_details.cached_tokens:
+                prompt_details["cached_tokens"] = response.usage.prompt_tokens_details.cached_tokens
+            if prompt_details:
+                usage_entry["usage"]["prompt_tokens_details"] = prompt_details
+        
+        if hasattr(response.usage, 'completion_tokens_details') and response.usage.completion_tokens_details:
+            completion_details = {}
+            if response.usage.completion_tokens_details.audio_tokens:
+                completion_details["audio_tokens"] = response.usage.completion_tokens_details.audio_tokens
+            if response.usage.completion_tokens_details.reasoning_tokens:
+                completion_details["reasoning_tokens"] = response.usage.completion_tokens_details.reasoning_tokens
+            if response.usage.completion_tokens_details.accepted_prediction_tokens:
+                completion_details["accepted_prediction_tokens"] = response.usage.completion_tokens_details.accepted_prediction_tokens
+            if response.usage.completion_tokens_details.rejected_prediction_tokens:
+                completion_details["rejected_prediction_tokens"] = response.usage.completion_tokens_details.rejected_prediction_tokens
+            if completion_details:
+                usage_entry["usage"]["completion_tokens_details"] = completion_details
+    
+    # Add usage entry to the list if usage tracking is enabled
+    if usage_data is not None:
+        usage_data.append(usage_entry)
     
     # End the generation
     generation.end(
         output=code,
-        metadata={"conversation_length": len(conversation) + 1}
+        metadata={
+            "conversation_length": len(conversation) + 1,
+            "usage": usage_entry["usage"] if usage_entry["usage"] else None
+        }
     )
     
     return code
@@ -325,15 +416,27 @@ def generate_implementation(prompt: str, conversation: List[Dict[str, str]]) -> 
 def main():
     """Main function to run the AI software engineering loop."""
     try:
-        # Parse arguments to get the prompt
-        prompt = parse_arguments()
+        # Parse arguments
+        args, prompt = parse_arguments()
+        
+        # Set configuration based on arguments
+        model = args.model or MODEL
+        implementation_file = args.implementation_file or IMPLEMENTATION_FILE
+        conversation_file = args.conversation_file or CONVERSATION_FILE
+        usage_file = args.usage_file  # This can be None
+        max_iterations = args.max_iterations or MAX_ITERATIONS
         
         # Load conversation history
-        conversation = load_conversation()
+        conversation = load_conversation(conversation_file)
         
-        print(f"\n🚀 Starting AI Software Engineer Loop with {MODEL} model")
-        print(f"Implementation file: {IMPLEMENTATION_FILE}")
-        print(f"Conversation file: {CONVERSATION_FILE}")
+        # Load usage data if usage tracking is enabled
+        usage_data = load_usage_data(usage_file) if usage_file else None
+        
+        print(f"\n🚀 Starting AI Software Engineer Loop with {model} model")
+        print(f"Implementation file: {implementation_file}")
+        print(f"Conversation file: {conversation_file}")
+        if usage_file:
+            print(f"Usage data file: {usage_file}")
         print(f"Current iteration: {len(conversation) // 2 + 1}")
         
         # Initialize variables
@@ -341,20 +444,24 @@ def main():
         iteration = 0
         
         # Main loop
-        while not all_tests_passed and iteration < MAX_ITERATIONS:
+        while not all_tests_passed and iteration < max_iterations:
             iteration += 1
             print(f"\n=== Iteration {iteration} ===")
             
             # Generate implementation
             print("Generating implementation...")
-            implementation = generate_implementation(prompt, conversation)
+            implementation = generate_implementation(prompt, conversation, usage_data)
             
             # Save implementation to file
-            save_implementation(implementation)
+            save_implementation(implementation, implementation_file)
+            
+            # Save usage data after each generation if usage tracking is enabled
+            if usage_data is not None:
+                save_usage_data(usage_data, usage_file)
             
             # Run tests
             print("Running tests...")
-            all_tests_passed, test_output = run_tests(prompt=prompt)
+            all_tests_passed, test_output = run_tests(implementation_file=implementation_file, prompt=prompt)
             
             print(f"Tests {'PASSED ✅' if all_tests_passed else 'FAILED ❌'}")
             print("Test output:")
@@ -370,7 +477,7 @@ def main():
             conversation.append({"role": "user", "content": f"Test results:\n{test_output}\n\nPlease fix any issues and provide an improved implementation."})
             
             # Save conversation
-            save_conversation(conversation)
+            save_conversation(conversation, conversation_file)
             
             if all_tests_passed:
                 print("\n🎉 All tests passed! Final implementation is ready.")
@@ -378,15 +485,29 @@ def main():
         
         # Print summary
         print("\n📊 AI Engineer Loop Summary:")
-        print(f"- Model: {MODEL}")
-        print(f"- Iterations completed: {iteration}/{MAX_ITERATIONS}")
+        print(f"- Model: {model}")
+        print(f"- Iterations completed: {iteration}/{max_iterations}")
         print(f"- Tests passed: {'Yes ✅' if all_tests_passed else 'No ❌'}")
         
-        if iteration >= MAX_ITERATIONS and not all_tests_passed:
-            print(f"\n⚠️ Reached maximum iterations ({MAX_ITERATIONS}). Stopping.")
+        # Print usage summary if usage tracking is enabled
+        if usage_data:
+            total_tokens = sum(entry.get("usage", {}).get("total_tokens", 0) for entry in usage_data if entry.get("usage"))
+            total_prompt_tokens = sum(entry.get("usage", {}).get("prompt_tokens", 0) for entry in usage_data if entry.get("usage"))
+            total_completion_tokens = sum(entry.get("usage", {}).get("completion_tokens", 0) for entry in usage_data if entry.get("usage"))
+            
+            print("\n📈 Usage Summary:")
+            print(f"- Total API calls: {len(usage_data)}")
+            print(f"- Total tokens used: {total_tokens}")
+            print(f"- Total prompt tokens: {total_prompt_tokens}")
+            print(f"- Total completion tokens: {total_completion_tokens}")
         
-        print(f"\nFinal implementation saved to {IMPLEMENTATION_FILE}")
-        print(f"Conversation saved to {CONVERSATION_FILE}")
+        if iteration >= max_iterations and not all_tests_passed:
+            print(f"\n⚠️ Reached maximum iterations ({max_iterations}). Stopping.")
+        
+        print(f"\nFinal implementation saved to {implementation_file}")
+        print(f"Conversation saved to {conversation_file}")
+        if usage_file:
+            print(f"Usage data saved to {usage_file}")
         
         # Return success status for the model evaluator
         return all_tests_passed

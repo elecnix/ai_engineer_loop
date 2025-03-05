@@ -3,3 +3,6 @@ memory.json
 model_evaluation_results.json
 *.pyc
 model_evaluations/
+all_models.txt
+conversation.json
+usage_data.json

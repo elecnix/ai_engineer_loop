@@ -113,6 +113,7 @@ def run_model_evaluation(model: str, run: int, prompt_path: str) -> Dict[str, An
             ["python3", "ai_engineer.py", prompt_path],
             capture_output=True,
             text=True,
+            timeout=300,
             env=env
         )
         
