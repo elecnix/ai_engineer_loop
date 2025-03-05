@@ -84,7 +84,8 @@ def setup_directories(model: str, run: int) -> Dict[str, str]:
         "model_dir": str(model_dir),
         "run_dir": str(run_dir),
         "implementation_path": str(run_dir / IMPLEMENTATION_FILE),
-        "conversation_path": str(run_dir / CONVERSATION_FILE)
+        "conversation_path": str(run_dir / CONVERSATION_FILE),
+        "usage_path": str(run_dir / "usage_data.json")
     }
 
 def run_model_evaluation(model: str, run: int, prompt_path: str) -> Dict[str, Any]:
@@ -110,7 +111,7 @@ def run_model_evaluation(model: str, run: int, prompt_path: str) -> Dict[str, An
     # Run the AI engineer process
     try:
         result = subprocess.run(
-            ["python3", "ai_engineer.py", prompt_path],
+            ["python3", "ai_engineer.py", prompt_path, "--usage-file", paths["usage_path"]],
             capture_output=True,
             text=True,
             timeout=300,
@@ -136,18 +137,29 @@ def run_model_evaluation(model: str, run: int, prompt_path: str) -> Dict[str, An
         except Exception as e:
             print(f"Error reading conversation file: {e}")
         
+        # Get usage data if available
+        usage_data = None
+        try:
+            if os.path.exists(paths["usage_path"]):
+                with open(paths["usage_path"], 'r') as f:
+                    usage_data = json.load(f)
+        except Exception as e:
+            print(f"Error reading usage data file: {e}")
+        
         return {
             "passed": passed,
             "exit_code": result.returncode,
             "output_path": os.path.join(paths["run_dir"], "output.log"),
-            "iterations": iterations
+            "iterations": iterations,
+            "usage_data": usage_data
         }
     except Exception as e:
         print(f"Error running evaluation: {e}")
         return {
             "passed": False,
             "exit_code": -1,
-            "error": str(e)
+            "error": str(e),
+            "usage_data": None
         }
 
 def main():
@@ -210,7 +222,14 @@ def main():
             if model not in results["models_evaluated"]:
                 results["models_evaluated"][model] = {
                     "runs": {},
-                    "pass_rate": 0.0
+                    "pass_rate": 0.0,
+                    "usage_stats": {
+                        "total_tokens": 0,
+                        "total_prompt_tokens": 0,
+                        "total_completion_tokens": 0,
+                        "total_duration_seconds": 0,
+                        "total_api_calls": 0
+                    }
                 }
             
             # Set current model
@@ -232,6 +251,17 @@ def main():
                 passed_runs = sum(1 for r in results["models_evaluated"][model]["runs"].values() if r.get("passed", False))
                 total_runs = len(results["models_evaluated"][model]["runs"])
                 results["models_evaluated"][model]["pass_rate"] = passed_runs / total_runs if total_runs > 0 else 0.0
+                
+                # Update usage statistics if available
+                if run_result.get("usage_data") and isinstance(run_result["usage_data"], dict) and "totals" in run_result["usage_data"]:
+                    totals = run_result["usage_data"]["totals"]
+                    
+                    # Update model usage stats
+                    results["models_evaluated"][model]["usage_stats"]["total_tokens"] += totals.get("total_tokens", 0)
+                    results["models_evaluated"][model]["usage_stats"]["total_prompt_tokens"] += totals.get("total_prompt_tokens", 0)
+                    results["models_evaluated"][model]["usage_stats"]["total_completion_tokens"] += totals.get("total_completion_tokens", 0)
+                    results["models_evaluated"][model]["usage_stats"]["total_duration_seconds"] += totals.get("total_duration_seconds", 0)
+                    results["models_evaluated"][model]["usage_stats"]["total_api_calls"] += totals.get("total_api_calls", 0)
           
                 # Save results after each run
                 save_results(results)
@@ -259,8 +289,16 @@ def main():
         reverse=True
     )
     
+    # Print header
+    print(f"{'Model':<20} {'Pass Rate':<15} {'Total Tokens':<15} {'Prompt Tokens':<15} {'Completion':<15} {'Duration (s)':<15}")
+    print("-" * 95)
+    
     for model, data in sorted_models:
-        print(f"{model}: Pass Rate {data['pass_rate']:.2%} ({sum(1 for r in data['runs'].values() if r.get('passed', False))}/{len(data['runs'])})")
+        usage = data.get("usage_stats", {})
+        passes = sum(1 for r in data['runs'].values() if r.get('passed', False))
+        total_runs = len(data['runs'])
+        
+        print(f"{model:<20} {data['pass_rate']:.2%} ({passes}/{total_runs}) {usage.get('total_tokens', 0):<15} {usage.get('total_prompt_tokens', 0):<15} {usage.get('total_completion_tokens', 0):<15} {usage.get('total_duration_seconds', 0):<15.2f}")
     
     print("\nEvaluation complete. Results saved to", RESULTS_FILE)
 
