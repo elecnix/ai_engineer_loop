@@ -4,3 +4,4 @@ Include comprehensive tests that verify the function works correctly for various
 including edge cases like n=0 and n=1.
 The tests should also verify that the function raises appropriate exceptions for invalid inputs,
 such as negative numbers or non-integer values.
+The tests should be run using the unittest framework and output a summary of the test results.

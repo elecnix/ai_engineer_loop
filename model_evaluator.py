@@ -142,7 +142,8 @@ def main():
     """Main function to run the model evaluation."""
     parser = argparse.ArgumentParser(description="Evaluate multiple Ollama models on a coding task")
     parser.add_argument("prompt_path", help="Path to the prompt file")
-    parser.add_argument("--model", help="Specific model to evaluate (optional)")
+    parser.add_argument("--models", nargs="+", help="List of models to evaluate (space-separated)")
+    parser.add_argument("--model", help="Single specific model to evaluate (overrides --models)")
     parser.add_argument("--resume", action="store_true", help="Resume from last evaluation")
     args = parser.parse_args()
     
@@ -155,17 +156,26 @@ def main():
         print("No models found. Make sure Ollama is installed and running.")
         sys.exit(1)
     
-    print(f"Found {len(all_models)} models: {', '.join(all_models[:5])}...")
-    
-    # Filter models if specified
-    if args.model:
+    # Determine which models to evaluate
+    if args.model:  # Single model takes precedence
         if args.model in all_models:
             models_to_evaluate = [args.model]
         else:
             print(f"Model {args.model} not found. Available models: {', '.join(all_models[:5])}...")
             sys.exit(1)
-    else:
+    elif args.models:  # List of models provided via command line
+        # Filter out models that aren't available
+        models_to_evaluate = [model for model in args.models if model in all_models]
+        if not models_to_evaluate:
+            print("None of the specified models are available.")
+            print(f"Available models: {', '.join(all_models[:5])}...")
+            sys.exit(1)
+    else:  # Default to all models if no specific models are provided
         models_to_evaluate = all_models
+        print("No models specified, evaluating all available models.")
+        print("This may take a long time. Consider specifying models with --models.")
+    
+    print(f"Evaluating {len(models_to_evaluate)} models: {', '.join(models_to_evaluate)}")
     
     # Resume from last evaluation if requested
     start_model_idx = 0

@@ -66,6 +66,14 @@ def extract_code_from_response(response: str) -> str:
     """Extract code from the response that is enclosed in ```python and ``` markers.
     If no markers are found, clean the response as best as possible.
     """
+    # Check if the response starts with ```python and remove it if present
+    if response.strip().startswith('```python'):
+        response = response.strip()[len('```python'):].strip()
+        # Also check if it ends with ``` and remove it
+        if response.strip().endswith('```'):
+            response = response.strip()[:-3].strip()
+        return response
+    
     # First, try to extract code from markdown code blocks
     pattern = r"```python\s*(.*?)\s*```"
     matches = re.findall(pattern, response, re.DOTALL)
