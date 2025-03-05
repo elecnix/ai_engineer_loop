@@ -8,7 +8,7 @@ This program implements an AI software engineering loop that:
 4. Analyzes test results
 5. Iteratively improves the implementation until all tests pass
 
-The program uses Ollama with the `deepseek-coder` model to generate code and maintains a memory file to track learnings across iterations.
+The program uses Ollama with configurable models to generate code and maintains a memory file to track learnings across iterations. It includes a model evaluator that can test multiple Ollama models to compare their performance.
 
 ## Requirements
 
@@ -64,12 +64,35 @@ python ai_engineer.py
 
 ## How It Works
 
+### AI Engineer Loop
+
 1. The program reads the software specification prompt.
-2. It uses Ollama with the `deepseek-coder` model to generate an initial implementation with tests.
+2. It uses Ollama with the configured model to generate an initial implementation with tests.
 3. It runs the tests and checks if they pass.
 4. If tests fail, it updates a memory file with learnings from the current iteration.
 5. It generates an improved implementation based on the original prompt, test results, and memory.
 6. Steps 3-5 repeat until all tests pass or the maximum number of iterations is reached.
+
+### Model Evaluator
+
+1. The evaluator identifies all available Ollama models.
+2. For each model, it runs multiple evaluations (default: 5 runs per model).
+3. Each run allows multiple iterations (default: 3 iterations per run).
+4. Results are organized in a directory structure:
+   ```
+   model_evaluations/
+   ├── model_name_1/
+   │   ├── 001/
+   │   │   ├── implementation.py
+   │   │   ├── memory.json
+   │   │   └── output.log
+   │   ├── 002/
+   │   └── ...
+   ├── model_name_2/
+   └── ...
+   ```
+5. A global results file (`model_evaluation_results.json`) tracks the performance of each model.
+6. The evaluator can be interrupted and resumed at any point.
 
 ## Output Files
 

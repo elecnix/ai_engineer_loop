@@ -18,6 +18,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from langfuse import Langfuse
 
+
 # Load environment variables
 load_dotenv()
 
@@ -34,11 +35,11 @@ client = OpenAI(
     api_key='ollama',  # required, but unused
 )
 
-# Constants
-MODEL = "llama3.2:3b"
-MEMORY_FILE = "memory.json"
-IMPLEMENTATION_FILE = "implementation.py"
-MAX_ITERATIONS = 3  # Maximum number of iterations to prevent infinite loops
+# Constants - can be overridden by environment variables
+MODEL = os.environ.get("MODEL", "llama3.2:3b")
+MEMORY_FILE = os.environ.get("MEMORY_FILE", "memory.json")
+IMPLEMENTATION_FILE = os.environ.get("IMPLEMENTATION_FILE", "implementation.py")
+MAX_ITERATIONS = int(os.environ.get("MAX_ITERATIONS", "3"))  # Maximum number of iterations to prevent infinite loops
 
 
 def parse_arguments() -> str:
@@ -358,57 +359,89 @@ def generate_implementation(prompt: str, memory: Dict[str, Any], test_output: Op
 
 def main():
     """Main function to run the AI software engineering loop."""
-    # Parse arguments to get the prompt
-    prompt = parse_arguments()
-    
-    # Load memory
-    memory = load_memory()
-    
-    print(f"Starting AI Software Engineer Loop with {MODEL} model")
-    print(f"Current iteration: {memory['iterations'] + 1}")
-    
-    # Initialize variables
-    all_tests_passed = False
-    test_output = None
-    iteration = 0
-    
-    # Main loop
-    while not all_tests_passed and iteration < MAX_ITERATIONS:
-        iteration += 1
-        print(f"\n=== Iteration {iteration} ===")
+    try:
+        # Parse arguments to get the prompt
+        prompt = parse_arguments()
         
-        # Generate implementation
-        print("Generating implementation...")
-        implementation = generate_implementation(prompt, memory, test_output)
+        # Load memory
+        memory = load_memory()
         
-        # Save implementation to file
-        save_implementation(implementation)
+        # Track metrics
+        syntax_errors = 0
+        runtime_errors = 0
         
-        # Run tests
-        print("Running tests...")
-        all_tests_passed, test_output = run_tests(prompt=prompt)
-        print(f"Tests {'PASSED' if all_tests_passed else 'FAILED'}")
-        print("Test output:")
-        print("-" * 40)
-        print(test_output)
-        print("-" * 40)
+        print(f"\n🚀 Starting AI Software Engineer Loop with {MODEL} model")
+        print(f"Implementation file: {IMPLEMENTATION_FILE}")
+        print(f"Memory file: {MEMORY_FILE}")
+        print(f"Current iteration: {memory['iterations'] + 1}")
         
-        # Update memory with learnings
-        print("Updating memory with learnings...")
-        memory = update_memory(implementation, test_output, memory)
-        save_memory(memory)
+        # Initialize variables
+        all_tests_passed = False
+        test_output = None
+        iteration = 0
         
-        if all_tests_passed:
-            print("\n🎉 All tests passed! Final implementation is ready.")
-            break
+        # Main loop
+        while not all_tests_passed and iteration < MAX_ITERATIONS:
+            iteration += 1
+            print(f"\n=== Iteration {iteration} ===")
+            
+            # Generate implementation
+            print("Generating implementation...")
+            implementation = generate_implementation(prompt, memory, test_output)
+            
+            # Save implementation to file
+            save_implementation(implementation)
+            
+            # Run tests
+            print("Running tests...")
+            all_tests_passed, test_output = run_tests(prompt=prompt)
+            
+            # Check for syntax or runtime errors
+            if "SyntaxError" in test_output:
+                syntax_errors += 1
+            elif "Error" in test_output or "Exception" in test_output:
+                runtime_errors += 1
+                
+            print(f"Tests {'PASSED ✅' if all_tests_passed else 'FAILED ❌'}")
+            print("Test output:")
+            print("-" * 40)
+            print(test_output)
+            print("-" * 40)
+            
+            # Update memory with learnings
+            print("Updating memory with learnings...")
+            memory = update_memory(implementation, test_output, memory)
+            save_memory(memory)
+            
+            if all_tests_passed:
+                print("\n🎉 All tests passed! Final implementation is ready.")
+                break
         
-        if iteration >= MAX_ITERATIONS:
+        # Print summary
+        print("\n📊 AI Engineer Loop Summary:")
+        print(f"- Model: {MODEL}")
+        print(f"- Iterations completed: {iteration}/{MAX_ITERATIONS}")
+        print(f"- Tests passed: {'Yes ✅' if all_tests_passed else 'No ❌'}")
+        print(f"- Syntax errors encountered: {syntax_errors}")
+        print(f"- Runtime errors encountered: {runtime_errors}")
+        
+        if iteration >= MAX_ITERATIONS and not all_tests_passed:
             print(f"\n⚠️ Reached maximum iterations ({MAX_ITERATIONS}). Stopping.")
-            break
-    
-    print(f"\nFinal implementation saved to {IMPLEMENTATION_FILE}")
-    print(f"Memory saved to {MEMORY_FILE}")
+        
+        print(f"\nFinal implementation saved to {IMPLEMENTATION_FILE}")
+        print(f"Memory saved to {MEMORY_FILE}")
+        
+        # Return success status for the model evaluator
+        return all_tests_passed
+        
+    except Exception as e:
+        print(f"\n❌ Error in AI Engineer Loop: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return False
 
 
 if __name__ == "__main__":
-    main()
+    success = main()
+    # Exit with appropriate code for the model evaluator
+    sys.exit(0 if success else 1)

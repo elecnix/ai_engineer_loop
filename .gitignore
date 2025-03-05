@@ -1,2 +1,5 @@
 implementation.py
 memory.json
+model_evaluation_results.json
+*.pyc
+model_evaluations/
