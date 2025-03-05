@@ -23,8 +23,8 @@ from ai_engineer import run_tests, parse_arguments, load_conversation, save_conv
 
 # Constants
 RESULTS_FILE = "model_evaluation_results.json"
-MAX_RUNS_PER_MODEL = 1  # Reduced from 5 for faster testing
-MAX_ITERATIONS_PER_RUN = 3
+MAX_RUNS_PER_MODEL = 3
+MAX_ITERATIONS_PER_RUN = 5
 IMPLEMENTATION_FILE = "implementation.py"
 CONVERSATION_FILE = "conversation.json"
 

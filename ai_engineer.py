@@ -355,7 +355,22 @@ def generate_implementation(prompt: str, conversation: List[Dict[str, str]], usa
     
     # Add the initial prompt if conversation is empty
     if not conversation:
-        messages.append({"role": "user", "content": f"Write Python code for this spec:\n{prompt}\n\nInclude:\n- Simple unittest tests\n- Minimal comments\n- Handle edge cases\n\nReturn ONLY code, no explanations."})
+        messages.append({"role": "user", "content": f"""Write Python code for this spec:
+{prompt}
+
+Include:
+- Simple unittest tests
+- Minimal comments
+- Handle edge cases
+
+Format your code using triple backtick blocks with the language specifier:
+
+```python
+def example_function():
+    return "Hello World"
+```
+
+Return ONLY code, no explanations."""})
     else:
         # Add conversation history (limited to last 10 messages to avoid context length issues)
         for msg in conversation[-10:]:

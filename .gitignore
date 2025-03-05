@@ -1,8 +1,7 @@
 implementation.py
 memory.json
-model_evaluation_results.json
 *.pyc
-model_evaluations/
+model_evaluation*
 all_models.txt
 conversation.json
 usage_data.json
