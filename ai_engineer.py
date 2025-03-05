@@ -340,7 +340,7 @@ def load_usage_data(filename: Optional[str] = None) -> List[Dict[str, Any]]:
         return []
 
 
-def generate_implementation(prompt: str, conversation: List[Dict[str, str]], usage_data: Optional[List[Dict[str, Any]]] = None) -> str:
+def generate_implementation(prompt: str, conversation: List[Dict[str, str]], usage_data: Optional[List[Dict[str, Any]]] = None) -> Tuple[str, str]:
     """Generate implementation based on the prompt and conversation history."""
     trace = langfuse.trace(
         name="generate_implementation",
@@ -395,7 +395,10 @@ Return ONLY code, no explanations."""})
     # Record end time
     end_time = time.time()
     
+    # Get the full model response
     implementation = response.choices[0].message.content
+    
+    # Extract code for saving to file, but keep full response for conversation
     code = extract_code_from_response(implementation)
     
     # Capture usage data
@@ -451,7 +454,8 @@ Return ONLY code, no explanations."""})
         }
     )
     
-    return code
+    # Return a tuple with both the complete response and the extracted code
+    return implementation, code
 
 
 def main():
@@ -491,10 +495,10 @@ def main():
             
             # Generate implementation
             print("Generating implementation...")
-            implementation = generate_implementation(prompt, conversation, usage_data)
+            full_response, code = generate_implementation(prompt, conversation, usage_data)
             
             # Save implementation to file
-            save_implementation(implementation, implementation_file)
+            save_implementation(code, implementation_file)
             
             # Save usage data after each generation if usage tracking is enabled
             if usage_data is not None:
@@ -514,7 +518,8 @@ def main():
             if not conversation:
                 # First message should include the prompt
                 conversation.append({"role": "user", "content": f"Implement the following specification:\n\n{prompt}"})
-            conversation.append({"role": "assistant", "content": implementation})
+            # Store the complete model response
+            conversation.append({"role": "assistant", "content": full_response})
             conversation.append({"role": "user", "content": f"Test results:\n{test_output}\n\nPlease fix any issues and provide an improved implementation."})
             
             # Save conversation
