@@ -22,11 +22,14 @@ from ai_engineer import run_tests, parse_arguments, load_conversation, save_conv
 
 
 # Constants
-RESULTS_FILE = "model_evaluation_results.json"
 MAX_RUNS_PER_MODEL = 3
 MAX_ITERATIONS_PER_RUN = 5
 IMPLEMENTATION_FILE = "implementation.py"
 CONVERSATION_FILE = "conversation.json"
+
+# These will be set in main() based on command line arguments
+BASE_DIR = "model_evaluations"
+RESULTS_FILE = "model_evaluation_results.json"
 
 def get_available_models() -> List[str]:
     """Get a list of available Ollama models."""
@@ -54,8 +57,9 @@ def get_available_models() -> List[str]:
 
 def load_results() -> Dict[str, Any]:
     """Load existing evaluation results."""
-    if os.path.exists(RESULTS_FILE):
-        with open(RESULTS_FILE, 'r') as f:
+    results_path = Path(BASE_DIR) / RESULTS_FILE
+    if os.path.exists(results_path):
+        with open(results_path, 'r') as f:
             return json.load(f)
     return {
         "models_evaluated": {},
@@ -65,14 +69,15 @@ def load_results() -> Dict[str, Any]:
 
 def save_results(results: Dict[str, Any]) -> None:
     """Save evaluation results to file."""
-    with open(RESULTS_FILE, 'w') as f:
+    results_path = Path(BASE_DIR) / RESULTS_FILE
+    with open(results_path, 'w') as f:
         json.dump(results, f, indent=2)
-    print(f"Results saved to {RESULTS_FILE}")
+    print(f"Results saved to {results_path}")
 
 def setup_directories(model: str, run: int) -> Dict[str, str]:
     """Set up directories for the model and run."""
     # Create model directory if it doesn't exist
-    model_dir = Path(f"model_evaluations/{model}")
+    model_dir = Path(BASE_DIR) / model
     model_dir.mkdir(parents=True, exist_ok=True)
     
     # Create run directory
@@ -169,7 +174,17 @@ def main():
     parser.add_argument("--models", nargs="+", help="List of models to evaluate (space-separated)")
     parser.add_argument("--model", help="Single specific model to evaluate (overrides --models)")
     parser.add_argument("--resume", action="store_true", help="Resume from last evaluation")
+    parser.add_argument("--base-dir", default="model_evaluations", help="Base directory for evaluation results")
+    parser.add_argument("--results-file", default="model_evaluation_results.json", help="Name of the results file")
     args = parser.parse_args()
+    
+    # Set global constants based on command line arguments
+    global BASE_DIR, RESULTS_FILE
+    BASE_DIR = args.base_dir
+    RESULTS_FILE = args.results_file
+    
+    # Create base directory if it doesn't exist
+    Path(BASE_DIR).mkdir(parents=True, exist_ok=True)
     
     # Load existing results
     results = load_results()
@@ -319,7 +334,8 @@ def main():
         
         print(f"{model:<20} {data['pass_rate']:.2%} ({passes}/{total_runs}) {usage.get('total_tokens', 0):<15} {usage.get('total_prompt_tokens', 0):<15} {usage.get('total_completion_tokens', 0):<15} {usage.get('total_duration_seconds', 0):<15.2f}")
     
-    print("\nEvaluation complete. Results saved to", RESULTS_FILE)
+    results_path = Path(BASE_DIR) / RESULTS_FILE
+    print("\nEvaluation complete. Results saved to", results_path)
 
 if __name__ == "__main__":
     main()

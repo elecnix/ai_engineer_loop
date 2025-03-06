@@ -74,80 +74,34 @@ def parse_arguments():
 
 def extract_code_from_response(response: str) -> str:
     """Extract code from the response that is enclosed in ```python and ``` markers.
-    If no markers are found, clean the response as best as possible.
-    Also removes notes, explanations, and trailing backticks that might be included.
+    If no code blocks are found, assumes the entire response is Python code.
+    Also supports code blocks with missing closing backticks.
     """
-    # Check if the response starts with ```python and remove it if present
-    if response.strip().startswith('```python'):
-        response = response.strip()[len('```python'):].strip()
-        # Also check if it ends with ``` and remove it
-        if response.strip().endswith('```'):
-            response = response.strip()[:-3].strip()
-        # Remove any trailing notes or explanations
-        response = remove_trailing_notes(response)
-        return response
-    
-    # First, try to extract code from markdown code blocks
+    # First try to match complete code blocks with both opening and closing markers
     pattern = r"```python\s*(.*?)\s*```"
     matches = re.findall(pattern, response, re.DOTALL)
-    
-    if not matches:
-        # Try without language specifier
-        pattern = r"```\s*(.*?)\s*```"
-        matches = re.findall(pattern, response, re.DOTALL)
     
     if matches:
         # Join all code blocks if multiple are found
         if len(matches) > 1:
             print(f"Warning: Multiple code blocks found ({len(matches)}). Joining them.")
         code = '\n\n'.join(matches)
-        # Remove any trailing notes or explanations
-        code = remove_trailing_notes(code)
         return code
     
-    # If no code blocks found, clean the response
-    # Remove common prefixes that might indicate explanations
-    cleaned_response = response
-    prefixes_to_remove = [
-        r"^Here's the implementation:.*?\n",
-        r"^Here is the implementation:.*?\n",
-        r"^The implementation is:.*?\n",
-        r"^Here's the code:.*?\n",
-        r"^Here is the code:.*?\n",
-        r"^Implementation:.*?\n",
-        r"^Code:.*?\n"
-    ]
+    # If no complete code blocks found, try to match code blocks with missing closing backticks
+    pattern = r"```python\s*(.*?)$"
+    matches = re.findall(pattern, response, re.DOTALL)
     
-    for prefix in prefixes_to_remove:
-        cleaned_response = re.sub(prefix, "", cleaned_response, flags=re.IGNORECASE | re.DOTALL)
+    if matches:
+        print("Found code block with missing closing backticks.")
+        return matches[0].strip()
     
-    # Remove trailing explanations
-    cleaned_response = remove_trailing_notes(cleaned_response)
-    
-    print("No code blocks found. Returning cleaned response.")
-    return cleaned_response
+    # If no Python code blocks found, assume the entire response is Python code
+    print("No Python code blocks found. Assuming entire response is Python code.")
+    return response.strip()
 
 
-def remove_trailing_notes(code: str) -> str:
-    """Remove trailing notes, explanations, and stray backticks from code."""
-    # Remove any trailing backticks that might be left
-    code = re.sub(r"```\s*$", "", code, flags=re.MULTILINE)
-    
-    # Remove common note patterns
-    note_patterns = [
-        r"\s*Note:.*$",
-        r"\s*This code.*$",
-        r"\s*The function.*$",
-        r"\s*This implementation.*$",
-        r"\s*The code above.*$",
-        r"\s*In this implementation.*$",
-        r"\s*The tests.*$"
-    ]
-    
-    for pattern in note_patterns:
-        code = re.sub(pattern, "", code, flags=re.IGNORECASE | re.DOTALL)
-    
-    return code.strip()
+# Function no longer needed as we're only extracting from proper code blocks
 
 
 def save_implementation(code: str, filename: str) -> None:
