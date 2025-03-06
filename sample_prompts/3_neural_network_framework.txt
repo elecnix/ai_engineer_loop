@@ -1,0 +1,17 @@
+Implement a neural network framework in Python with automatic differentiation capabilities.
+
+Your solution should include:
+- Tensor class with automatic gradient tracking
+- Computational graph for forward and backward passes
+- Common operations (add, multiply, matmul, etc.)
+- Activation functions (ReLU, Sigmoid, Tanh, Softmax)
+- Loss functions (MSE, Cross Entropy)
+- Optimizers (SGD, Adam)
+- Layer abstractions and sequential model support
+
+Include tests that verify:
+- Automatic differentiation against numerical gradients
+- Gradient flow through complex computational graphs
+- Convergence on simple problems (XOR, MNIST subset)
+
+Use only NumPy for array operations, implement all neural network functionality from scratch.

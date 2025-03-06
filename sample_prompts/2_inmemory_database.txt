@@ -1,0 +1,17 @@
+Design and implement an in-memory database in Python with ACID transaction support.
+
+Your solution should include:
+- Table creation with schema definition
+- ACID transaction support
+- Concurrency control (optimistic and pessimistic)
+- Indexing (B-tree, hash-based)
+- Support for complex queries with joins and aggregations
+- Transaction isolation levels
+
+Include tests that verify:
+- ACID properties under concurrent operations
+- Query performance with and without indexes
+- Transaction isolation behavior
+- Recovery from simulated crashes
+
+Implement from scratch without using existing database libraries.

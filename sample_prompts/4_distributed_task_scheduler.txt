@@ -1,0 +1,19 @@
+Design and implement a distributed task scheduler in Python with fault tolerance.
+
+Your solution should include:
+- Coordinator and worker components
+- DAG-based task dependencies
+- Dynamic task prioritization
+- Work stealing for load balancing
+- Checkpointing for long-running tasks
+- Dead worker detection and task reassignment
+- Support for different execution models (sync, async, batch)
+
+Include tests that verify:
+- Task execution with complex dependency graphs
+- Recovery from worker failures
+- Load balancing under uneven workloads
+- Handling of task timeouts
+- Recovery from coordinator failure
+
+The system should scale to hundreds of workers and thousands of tasks.

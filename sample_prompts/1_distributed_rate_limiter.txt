@@ -1,0 +1,16 @@
+Implement a distributed rate limiter in Python that can be used across multiple servers to control API request rates.
+
+Your solution should include:
+- Support for multiple rate limit algorithms (Token Bucket, Leaky Bucket, etc.)
+- Distributed synchronization across multiple instances
+- Configurable rate limits per user/client/IP
+- High performance with minimal lock contention
+- Handling of clock drift and network partitions
+
+Include tests that verify:
+- Basic rate limiting functionality
+- Distributed synchronization across instances
+- Burst handling capabilities
+- Dynamic rate limit updates
+
+Implement from scratch without using existing rate limiting libraries.

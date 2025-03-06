@@ -1,0 +1,15 @@
+Design and implement a compiler for a custom programming language in Python.
+
+Your solution should include:
+- Complete compiler pipeline (lexer, parser, semantic analyzer, IR generator, optimizer, code generator)
+- A simple but complete language with variables, control flow, functions, and basic types
+- Key optimizations (constant folding, dead code elimination, common subexpression elimination)
+- Function inlining and tail call optimization
+
+Include tests that verify:
+- Lexing and parsing of valid and invalid programs
+- Semantic analysis catches type errors
+- Optimization effectiveness
+- Performance comparison of optimized vs. unoptimized code
+
+Include a simple runtime environment to execute the compiled code.
