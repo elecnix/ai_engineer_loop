@@ -230,10 +230,10 @@ def check_for_tests(implementation_code: str) -> Tuple[bool, str]:
 
 
 def run_tests(implementation_file: str, prompt: str = None) -> Tuple[bool, str]:
-    """Run the tests in the implementation file and return results.
+    """Run the tests in the implementation file using pytest and return results.
     
     First checks if the implementation includes tests. If not, returns False with a message.
-    Then runs the tests, either with the system Python or with a virtual environment if available.
+    Then runs the tests using pytest, either with the system Python or with a virtual environment if available.
     Finally, uses a model to determine if tests passed by analyzing the prompt, code, and test output.
     """
     try:
@@ -277,18 +277,19 @@ def run_tests(implementation_file: str, prompt: str = None) -> Tuple[bool, str]:
             output = ""
             
             if os.path.exists(venv_dir):
-                # Run with virtual environment
-                print("Running tests with virtual environment...")
-                success, venv_output = run_with_venv(implementation_file, output_dir)
+                # Run with pytest in the virtual environment
+                print("Running tests with pytest in virtual environment...")
+                # Use run_with_venv to run pytest on the implementation file
+                success, venv_output = run_with_venv(f"pytest {os.path.basename(implementation_file)} -v", output_dir)
                 output = venv_output
                 if not success:
                     result_returncode = 1
                     # Don't return immediately, let the model evaluate the output
             else:
-                # Run with system Python
-                print("Running tests with system Python...")
+                # Run with pytest using system Python
+                print("Running tests with pytest using system Python...")
                 result = subprocess.run(
-                    ["python3", implementation_file],
+                    ["pytest", implementation_file, "-v"],
                     capture_output=True,
                     text=True,
                     timeout=30  # Set a timeout to prevent hanging
@@ -524,11 +525,11 @@ def identify_and_install_libraries(implementation_code: str, test_output: str, o
         return False, f"Error setting up environment: {str(e)}"
 
 
-def run_with_venv(implementation_file: str, output_dir: str) -> Tuple[bool, str]:
-    """Run the implementation file using uv run with the project setup (no venv).
+def run_with_venv(command: str, output_dir: str) -> Tuple[bool, str]:
+    """Run the specified command using uv run with the project setup (no venv).
     
     Args:
-        implementation_file: Path to the implementation file
+        command: Command to run (can be a file path or a command like 'pytest file.py')
         output_dir: Directory where the project is located
     
     Returns:
@@ -550,7 +551,13 @@ def run_with_venv(implementation_file: str, output_dir: str) -> Tuple[bool, str]
                     raise RuntimeError(f"Failed to initialize uv project: {init_result.stderr}")
             
         # Run the command using uv run in the project directory
-        cmd = f"uv run {os.path.basename(implementation_file)}"
+        # If the command starts with pytest, make sure pytest is installed
+        if command.startswith('pytest'):
+            # Ensure pytest is installed
+            subprocess.run(["uv", "add", "pytest"], cwd=output_dir, capture_output=True, text=True)
+            
+        # Run the command using uv run
+        cmd = f"uv run {command}"
         run_result = subprocess.run(
             cmd,
             shell=True,
