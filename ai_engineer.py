@@ -37,7 +37,7 @@ client = OpenAI(
 )
 
 # Constants - can be overridden by environment variables
-MODEL = os.environ.get("OLLAMA_MODEL", "llama3.2:3b")
+MODEL = os.environ.get("OLLAMA_MODEL", "llama3.1:8b")
 CONVERSATION_FILE = os.environ.get("CONVERSATION_FILE", "conversation.json")
 IMPLEMENTATION_FILE = os.environ.get("IMPLEMENTATION_FILE", "implementation.py")
 MAX_ITERATIONS = int(os.environ.get("MAX_ITERATIONS", "3"))  # Maximum number of iterations to prevent infinite loops
@@ -73,31 +73,57 @@ def parse_arguments():
 
 
 def extract_code_from_response(response: str) -> str:
-    """Extract code from the response that is enclosed in ```python and ``` markers.
+    """Extract code from the response that is enclosed in code blocks.
+    Supports the following formats:
+    1. ```python ... ``` - Python-specific code blocks
+    2. ``` ... ``` - Generic code blocks without language specifier
+    3. Code blocks with missing closing backticks
+    
     If no code blocks are found, assumes the entire response is Python code.
-    Also supports code blocks with missing closing backticks.
     """
-    # First try to match complete code blocks with both opening and closing markers
+    # First try to match complete Python-specific code blocks
     pattern = r"```python\s*(.*?)\s*```"
     matches = re.findall(pattern, response, re.DOTALL)
     
     if matches:
         # Join all code blocks if multiple are found
         if len(matches) > 1:
-            print(f"Warning: Multiple code blocks found ({len(matches)}). Joining them.")
+            print(f"Warning: Multiple Python code blocks found ({len(matches)}). Joining them.")
         code = '\n\n'.join(matches)
         return code
     
+    # If no Python-specific blocks found, try to match generic code blocks
+    # This pattern matches ``` followed by anything except 'python' and then the content
+    pattern = r"```(?!python)(\w*)\s*(.*?)\s*```"
+    matches = re.findall(pattern, response, re.DOTALL)
+    
+    if matches:
+        # Extract just the code content (second group in each match)
+        code_blocks = [match[1] for match in matches]
+        if len(code_blocks) > 1:
+            print(f"Warning: Multiple generic code blocks found ({len(code_blocks)}). Joining them.")
+        code = '\n\n'.join(code_blocks)
+        return code
+    
     # If no complete code blocks found, try to match code blocks with missing closing backticks
+    # First try Python-specific blocks with missing closing backticks
     pattern = r"```python\s*(.*?)$"
     matches = re.findall(pattern, response, re.DOTALL)
     
     if matches:
-        print("Found code block with missing closing backticks.")
+        print("Found Python code block with missing closing backticks.")
         return matches[0].strip()
     
-    # If no Python code blocks found, assume the entire response is Python code
-    print("No Python code blocks found. Assuming entire response is Python code.")
+    # Then try generic blocks with missing closing backticks
+    pattern = r"```(?!python)(\w*)\s*(.*?)$"
+    matches = re.findall(pattern, response, re.DOTALL)
+    
+    if matches:
+        print("Found generic code block with missing closing backticks.")
+        return matches[0][1].strip()
+    
+    # If no code blocks found, assume the entire response is Python code
+    print("No code blocks found. Assuming entire response is Python code.")
     return response.strip()
 
 

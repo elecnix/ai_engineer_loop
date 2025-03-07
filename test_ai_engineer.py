@@ -116,9 +116,17 @@ I've implemented a basic recursive Fibonacci function. Keep up with practicing a
         This implementation is recursive and not optimized.
         """
         
-        # Should return the entire response as it's not a ```python block
+        expected = """def fibonacci(n):
+            if n <= 0:
+                return 0
+            elif n == 1:
+                return 1
+            else:
+                return fibonacci(n-1) + fibonacci(n-2)"""
+        
+        # Should extract the code from the generic markdown block
         result = extract_code_from_response(response)
-        self.assertEqual(result, response.strip())
+        self.assertEqual(result.strip(), expected.strip())
 
     def test_extract_with_multiple_code_blocks(self):
         """Test extracting code from a response with multiple code blocks."""
@@ -362,6 +370,73 @@ class FibonacciTest(unittest.TestCase):
         # because it's part of the code block. This is a known limitation.
         # In a real-world scenario, we might want to improve the extraction function
         # to better handle these cases.
+    
+    def test_extract_with_only_generic_prefix(self):
+        """Test extracting code that starts with ``` but has no closing backticks."""
+        response = """```
+        def fibonacci(n):
+            if n <= 0:
+                return 0
+            elif n == 1:
+                return 1
+            else:
+                return fibonacci(n-1) + fibonacci(n-2)
+        """
+        
+        expected_code = """def fibonacci(n):
+            if n <= 0:
+                return 0
+            elif n == 1:
+                return 1
+            else:
+                return fibonacci(n-1) + fibonacci(n-2)
+        """.strip()
+        
+        # Should extract the code after ```
+        result = extract_code_from_response(response)
+        self.assertEqual(result, expected_code)
+        
+    def test_extract_with_mixed_code_blocks(self):
+        """Test extracting code from a response with both Python and generic code blocks."""
+        response = """
+        Here's the first part:
+
+        ```python
+        def hello():
+            return "Hello"
+        ```
+
+        And here's the second part:
+
+        ```
+        def world():
+            return "World"
+        ```
+        """
+        
+        # Should prioritize Python code blocks over generic ones
+        result = extract_code_from_response(response)
+        self.assertEqual(result.strip(), 'def hello():\n            return "Hello"')
+        
+    def test_extract_with_other_language_specifier(self):
+        """Test extracting code from a response with a non-Python language specifier."""
+        response = """
+        Here's a solution:
+
+        ```javascript
+        function helloWorld() {
+            console.log("Hello, World!");
+        }
+        ```
+        """
+        
+        expected = """function helloWorld() {
+            console.log("Hello, World!");
+        }"""
+        
+        # Should extract the code from the non-Python language block
+        result = extract_code_from_response(response)
+        self.assertEqual(result.strip(), expected.strip())
 
 
 if __name__ == "__main__":
