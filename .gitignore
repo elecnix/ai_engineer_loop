@@ -3,3 +3,4 @@
 *.json
 *.csv
 model_evaluation*
+*_eval_results/*

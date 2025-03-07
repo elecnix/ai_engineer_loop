@@ -144,6 +144,7 @@ def run_model_evaluation(model: str, run: int, prompt_path: str) -> Dict[str, An
                         last_result = results[-1]
                         passed = last_result.get("tests_passed", False)
                         has_tests = last_result.get("has_tests", False)
+                        libraries_installed = last_result.get("libraries_installed", False)
                         iterations = len(results)
             else:
                 print(f"Warning: results.json not found at {results_path}")
@@ -274,6 +275,7 @@ def main():
                     "runs": {},
                     "pass_rate": 0.0,
                     "tests_included_rate": 0.0,
+                    "libraries_installed_rate": 0.0,
                     "usage_stats": {
                         "total_tokens": 0,
                         "total_prompt_tokens": 0,
@@ -303,12 +305,14 @@ def main():
                 # Save run result
                 results["models_evaluated"][model]["runs"][str(run)] = run_result
                 
-                # Update pass rate and tests included rate
+                # Update pass rate, tests included rate, and libraries installed rate
                 passed_runs = sum(1 for r in results["models_evaluated"][model]["runs"].values() if r.get("passed", False))
                 tests_included_runs = sum(1 for r in results["models_evaluated"][model]["runs"].values() if r.get("has_tests", False))
+                libraries_installed_runs = sum(1 for r in results["models_evaluated"][model]["runs"].values() if r.get("libraries_installed", False))
                 total_runs = len(results["models_evaluated"][model]["runs"])
                 results["models_evaluated"][model]["pass_rate"] = passed_runs / total_runs if total_runs > 0 else 0.0
                 results["models_evaluated"][model]["tests_included_rate"] = tests_included_runs / total_runs if total_runs > 0 else 0.0
+                results["models_evaluated"][model]["libraries_installed_rate"] = libraries_installed_runs / total_runs if total_runs > 0 else 0.0
                 
                 # Update usage statistics if available
                 if run_result.get("usage_data") and isinstance(run_result["usage_data"], dict) and "totals" in run_result["usage_data"]:
@@ -327,9 +331,11 @@ def main():
                 # Print progress
                 print(f"\nModel: {model} - Run {run}/{MAX_RUNS_PER_MODEL} - {'PASSED' if run_result['passed'] else 'FAILED'}")
                 print(f"Tests included: {'YES' if run_result.get('has_tests', False) else 'NO'}")
+                print(f"Libraries installed: {'YES' if run_result.get('libraries_installed', False) else 'NO'}")
                 print(f"Iterations: {run_result.get('iterations', 'unknown')}")
                 print(f"Current pass rate: {results['models_evaluated'][model]['pass_rate']:.2%}")
                 print(f"Tests included rate: {results['models_evaluated'][model]['tests_included_rate']:.2%}")
+                print(f"Libraries installed rate: {results['models_evaluated'][model]['libraries_installed_rate']:.2%}")
             
             # Reset start run for next model
             start_run = 1
@@ -350,16 +356,17 @@ def main():
     )
     
     # Print header
-    print(f"{'Model':<20} {'Pass Rate':<15} {'Tests Rate':<15} {'Total Tokens':<15} {'Prompt Tokens':<15} {'Completion':<15} {'Duration (s)':<15}")
-    print("-" * 110)
+    print(f"{'Model':<20} {'Pass Rate':<15} {'Tests Rate':<15} {'Libs Rate':<15} {'Total Tokens':<15} {'Prompt Tokens':<15} {'Completion':<15} {'Duration (s)':<15}")
+    print("-" * 125)
     
     for model, data in sorted_models:
         usage = data.get("usage_stats", {})
         passes = sum(1 for r in data['runs'].values() if r.get('passed', False))
         tests_included = sum(1 for r in data['runs'].values() if r.get('has_tests', False))
+        libraries_installed = sum(1 for r in data['runs'].values() if r.get('libraries_installed', False))
         total_runs = len(data['runs'])
         
-        print(f"{model:<20} {data['pass_rate']:.2%} ({passes}/{total_runs}) {data['tests_included_rate']:.2%} ({tests_included}/{total_runs}) {usage.get('total_tokens', 0):<15} {usage.get('total_prompt_tokens', 0):<15} {usage.get('total_completion_tokens', 0):<15} {usage.get('total_duration_seconds', 0):<15.2f}")
+        print(f"{model:<20} {data['pass_rate']:.2%} ({passes}/{total_runs}) {data['tests_included_rate']:.2%} ({tests_included}/{total_runs}) {data.get('libraries_installed_rate', 0):.2%} ({libraries_installed}/{total_runs}) {usage.get('total_tokens', 0):<15} {usage.get('total_prompt_tokens', 0):<15} {usage.get('total_completion_tokens', 0):<15} {usage.get('total_duration_seconds', 0):<15.2f}")
     
     results_path = Path(BASE_DIR) / RESULTS_FILE
     print("\nEvaluation complete. Results saved to", results_path)

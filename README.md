@@ -4,9 +4,10 @@ This program implements an AI software engineering loop that:
 
 1. Reads a software specification prompt
 2. Generates a Python implementation that satisfies the spec
-3. Creates and runs tests for the implementation
-4. Analyzes test results
-5. Iteratively improves the implementation until all tests pass
+3. Identifies required libraries from the implementation and installs them in a virtual environment
+4. Creates and runs tests for the implementation
+5. Analyzes test results
+6. Iteratively improves the implementation until all tests pass
 
 The program uses Ollama with configurable models to generate code and maintains a memory file to track learnings across iterations. It includes a model evaluator that can test multiple Ollama models to compare their performance.
 
@@ -15,6 +16,7 @@ The program uses Ollama with configurable models to generate code and maintains 
 - Python 3.7+
 - Ollama installed and running locally
 - Langfuse running locally
+- uv (Python package installer and environment manager)
 
 ## Installation
 
@@ -23,6 +25,12 @@ The program uses Ollama with configurable models to generate code and maintains 
 
 ```bash
 pip install openai langfuse python-dotenv
+```
+
+3. Install uv:
+
+```bash
+pip install uv
 ```
 
 3. Make sure Ollama is running with the `deepseek-coder` model:

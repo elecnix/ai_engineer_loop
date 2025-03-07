@@ -14,6 +14,7 @@ import argparse
 import subprocess
 import re
 import time
+import tempfile
 from typing import Dict, List, Tuple, Optional, Any
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -160,11 +161,27 @@ def save_implementation(code: str, filename: str, iteration: int = None) -> None
 def check_for_tests(implementation_code: str) -> Tuple[bool, str]:
     """Check if the implementation includes tests.
     
-    Uses a model to determine if the implementation includes tests.
+    First uses regex patterns to detect common test patterns.
+    If that fails, uses a model to determine if the implementation includes tests.
     A test function with only a 'pass' statement does not count as a valid test.
     Returns a tuple of (has_tests, model_response).
     """
-    # Use a specific model to determine if tests are included
+    # First try to detect tests using regex patterns
+    test_patterns = [
+        r'import\s+unittest',                   # unittest import
+        r'import\s+pytest',                     # pytest import
+        r'class\s+\w+\(?.*\)?\s*\(\s*unittest\.TestCase\s*\)',  # unittest test class
+        r'def\s+test_\w+\s*\(',                # test_ function
+        r'assert\s+',                           # assert statement
+        r'self\.assert\w+\(',                   # unittest assertion
+        r'@pytest\.\w+',                        # pytest decorator
+    ]
+    
+    for pattern in test_patterns:
+        if re.search(pattern, implementation_code):
+            return True, "<TESTED> (detected via regex)"
+    
+    # If regex detection fails, use a model to determine if tests are included
     TEST_CHECK_MODEL = "llama3:8b"  # Using llama3:8b as specified in analyze_tests.py
     
     test_analysis_prompt = f"""
@@ -216,7 +233,8 @@ def run_tests(implementation_file: str, prompt: str = None) -> Tuple[bool, str]:
     """Run the tests in the implementation file and return results.
     
     First checks if the implementation includes tests. If not, returns False with a message.
-    Then uses a model to determine if tests passed by analyzing the prompt, code, and test output.
+    Then runs the tests, either with the system Python or with a virtual environment if available.
+    Finally, uses a model to determine if tests passed by analyzing the prompt, code, and test output.
     """
     try:
         # Read the implementation code
@@ -231,31 +249,68 @@ def run_tests(implementation_file: str, prompt: str = None) -> Tuple[bool, str]:
             
         # Run the tests
         try:
-            result = subprocess.run(
-                ["python3", implementation_file],
-                capture_output=True,
-                text=True,
-                timeout=30  # Set a timeout to prevent hanging
-            )
+            # Check if we have a virtual environment
+            output_dir = os.path.dirname(implementation_file)
+            venv_dir = os.path.join(output_dir, "venv")
+            
+            # Initialize result variable for langfuse metadata
+            result_returncode = 0
+            
+            # First try to fix any obvious syntax or indentation errors in the implementation file
+            with open(implementation_file, 'r') as f:
+                implementation_code = f.read()
+            
+            # Fix common issues with the implementation file
+            fixed_code = implementation_code
+            # Fix indentation issues
+            fixed_code = re.sub(r'^(\s*)try:\s*$\n^(\s+)([^\s])', r'\1try:\n\1    \3', fixed_code, flags=re.MULTILINE)
+            # Fix if __name__ == "__main__": block
+            fixed_code = re.sub(r'^(\s*)if\s+__name__\s*==\s*"__main__":\s*$\n^(\s*)([^\s])', r'\1if __name__ == "__main__":\n\1    \3', fixed_code, flags=re.MULTILINE)
+            
+            # Write the fixed code back to the file if changes were made
+            if fixed_code != implementation_code:
+                print("Fixed syntax/indentation issues in the implementation file.")
+                with open(implementation_file, 'w') as f:
+                    f.write(fixed_code)
+            
+            # Initialize output variable
+            output = ""
+            
+            if os.path.exists(venv_dir):
+                # Run with virtual environment
+                print("Running tests with virtual environment...")
+                success, venv_output = run_with_venv(implementation_file, output_dir)
+                output = venv_output
+                if not success:
+                    result_returncode = 1
+                    # Don't return immediately, let the model evaluate the output
+            else:
+                # Run with system Python
+                print("Running tests with system Python...")
+                result = subprocess.run(
+                    ["python3", implementation_file],
+                    capture_output=True,
+                    text=True,
+                    timeout=30  # Set a timeout to prevent hanging
+                )
+                
+                # Combine stdout and stderr for complete output
+                output = result.stdout
+                if result.stderr:
+                    output += "\n" + result.stderr
+                    
+                # Set the return code for langfuse metadata
+                result_returncode = result.returncode
         except subprocess.TimeoutExpired:
             return False, "Execution timed out after 30 seconds."
         except Exception as e:
             return False, f"Error executing tests: {str(e)}"
-        
-        # Combine stdout and stderr for complete output
-        output = result.stdout
-        if result.stderr:
-            output += "\n" + result.stderr
-            
-        # If there was an error running the code, it definitely failed
-        if result.returncode != 0:
-            return False, output
             
         # Use a specific model (llama3.2:3b) to determine if tests passed
         JUDGE_MODEL = "llama3.2:3b"  # Hardcoded judge model
         trace = langfuse.trace(
             name="evaluate_tests",
-            metadata={"returncode": result.returncode}
+            metadata={"returncode": result_returncode if 'result_returncode' in locals() else 1}
         )
         
         test_evaluation_prompt = f"""
@@ -310,7 +365,7 @@ def run_tests(implementation_file: str, prompt: str = None) -> Tuple[bool, str]:
         
         generation.end(
             output=evaluation,
-            metadata={"returncode": result.returncode}
+            metadata={"returncode": result_returncode}
         )
         
         # Determine if tests passed based on the model's evaluation
@@ -359,6 +414,156 @@ def save_results(results: List[Dict[str, Any]], filename: str) -> None:
         print(f"Results saved to {filename}")
     except Exception as e:
         print(f"Error saving results: {str(e)}")
+
+
+def identify_and_install_libraries(implementation_code: str, test_output: str, output_dir: str) -> Tuple[bool, str]:
+    """Identify required libraries from implementation and test output and install them using uv.
+    
+    Args:
+        implementation_code: The implementation code
+        test_output: The output from running tests
+        output_dir: Directory where the project is located
+    
+    Returns:
+        Tuple of (success, output message)
+    """
+    try:
+        # No virtual environment is needed
+        
+        # Combine implementation code and test output for analysis
+        combined_text = implementation_code + "\n" + test_output
+        
+        # Find all pip install commands mentioned in the text
+        # This regex matches patterns like 'pip install flask', 'pip install flask==2.0.1', 'pip install flask pytest', etc.
+        pip_install_pattern = r'pip\s+install\s+([\w\.-]+(?:[=<>]+[\w\.-]+)?)'  
+        library_matches = re.findall(pip_install_pattern, combined_text)
+        
+        # Also look for multiple packages in a single pip install command
+        pip_install_multiple_pattern = r'pip\s+install\s+((?:[\w\.-]+(?:[=<>]+[\w\.-]+)?\s+)+[\w\.-]+(?:[=<>]+[\w\.-]+)?)'  
+        multiple_matches = re.findall(pip_install_multiple_pattern, combined_text)
+        
+        # Process multiple matches
+        for match in multiple_matches:
+            # Split by whitespace to get individual packages
+            packages = match.split()
+            library_matches.extend(packages)
+        
+        # Also look for import statements to catch libraries that might not be explicitly mentioned with pip install
+        import_pattern = r'import\s+([\w\.]+)|from\s+([\w\.]+)\s+import'
+        import_matches = re.findall(import_pattern, implementation_code)
+        
+        # Process import matches to get the base package names
+        imported_libs = set()
+        for main_import, from_import in import_matches:
+            lib = main_import or from_import
+            # Get the base package name (first part of the import)
+            base_lib = lib.split('.')[0]
+            # Skip standard library modules
+            if base_lib not in {
+                'io', 'os', 'sys', 're', 'json', 'time', 'argparse', 'subprocess', 'pathlib',
+                'typing', 'tempfile', 'unittest', 'datetime', 'math', 'random', 'collections',
+                'functools', 'itertools', 'abc', 'copy', 'enum', 'numbers', 'string', 'traceback'
+            }:
+                imported_libs.add(base_lib)
+        
+        # Combine libraries from pip install commands and import statements
+        libraries = set(library_matches) | imported_libs
+        
+        # Filter out common non-existent packages and example placeholders
+        libraries = {lib for lib in libraries if lib.lower() not in {
+            'yourapplication', 'yourapp', 'yourpackage', 'your_app', 'your_package',
+            'app', 'myapp', 'mypackage', 'my_app', 'my_package', 'example', 'sample',
+            'package_name', 'library_name', 'project_name'
+        }}
+        
+
+        
+        # Create a sanitized project name from the output directory
+        project_name = "implementation"
+        
+        # Check if pyproject.toml already exists
+        pyproject_path = os.path.join(output_dir, "pyproject.toml")
+        project_initialized = os.path.exists(pyproject_path)
+        
+        if not libraries:
+            # Initialize a uv project if not already initialized
+            if not project_initialized:
+                init_cmd = ["uv", "init", "--name", project_name]
+                init_result = subprocess.run(init_cmd, cwd=output_dir, capture_output=True, text=True)
+                
+                if init_result.returncode != 0:
+                    return False, f"Failed to initialize uv project: {init_result.stderr}"
+                
+                return True, "Initialized uv project. No external libraries identified."
+            else:
+                return True, "Project already initialized. No external libraries identified."
+        
+        # Initialize a uv project if not already initialized
+        if not project_initialized:
+            init_cmd = ["uv", "init", "--name", project_name]
+            init_result = subprocess.run(init_cmd, cwd=output_dir, capture_output=True, text=True)
+            
+            if init_result.returncode != 0:
+                return False, f"Failed to initialize uv project: {init_result.stderr}"
+        
+        # Install all identified libraries using uv add
+        install_output = []
+        for lib in libraries:
+            # Use uv add to add each library to the project
+            add_cmd = ["uv", "add", lib]
+            add_result = subprocess.run(add_cmd, cwd=output_dir, capture_output=True, text=True)
+            
+            install_output.append(f"Adding {lib}: {'SUCCESS' if add_result.returncode == 0 else 'FAILED'}")
+            
+            if add_result.returncode != 0:
+                install_output.append(f"Error: {add_result.stderr}")
+        
+        return True, "\n".join(["Initialized uv project"] + install_output)
+    
+    except Exception as e:
+        return False, f"Error setting up environment: {str(e)}"
+
+
+def run_with_venv(implementation_file: str, output_dir: str) -> Tuple[bool, str]:
+    """Run the implementation file using uv run with the project setup (no venv).
+    
+    Args:
+        implementation_file: Path to the implementation file
+        output_dir: Directory where the project is located
+    
+    Returns:
+        Tuple of (success, output)
+    """
+    try:
+            
+        # Check if pyproject.toml exists
+        pyproject_path = os.path.join(output_dir, "pyproject.toml")
+        if not os.path.exists(pyproject_path):
+            # Initialize a uv project if it doesn't exist with a sanitized project name
+            project_name = "implementation"
+            init_cmd = ["uv", "init", "--name", project_name]
+            init_result = subprocess.run(init_cmd, cwd=output_dir, capture_output=True, text=True)
+            
+            if init_result.returncode != 0:
+                # If initialization fails because the project is already initialized, we can continue
+                if "Project is already initialized" not in init_result.stderr:
+                    raise RuntimeError(f"Failed to initialize uv project: {init_result.stderr}")
+            
+        # Run the command using uv run in the project directory
+        cmd = f"uv run {os.path.basename(implementation_file)}"
+        run_result = subprocess.run(
+            cmd,
+            shell=True,
+            cwd=output_dir,  # Run in the project directory
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        
+        return run_result.returncode == 0, run_result.stdout + "\n" + run_result.stderr
+    
+    except Exception as e:
+        return False, f"Error running implementation: {str(e)}"
 
 
 def save_usage_data(usage_data: List[Dict[str, Any]], filename: Optional[str] = None) -> None:
@@ -669,9 +874,21 @@ def main():
             if usage_data is not None:
                 save_usage_data(usage_data, usage_file)
             
+            # Identify and install required libraries
+            print("Identifying required libraries...")
+            output_dir = os.path.dirname(implementation_file)
+            lib_install_success, lib_install_output = identify_and_install_libraries(code, "", output_dir)
+            print(lib_install_output)
+            
             # Run tests
             print("Running tests...")
             all_tests_passed, test_output = run_tests(implementation_file=implementation_file, prompt=prompt)
+            
+            # Update library identification with test output
+            if not all_tests_passed:
+                print("Updating library identification based on test output...")
+                lib_install_success, lib_install_output = identify_and_install_libraries(code, test_output, output_dir)
+                print(lib_install_output)
             
             print(f"Tests {'PASSED ✅' if all_tests_passed else 'FAILED ❌'}")
             print(f"Implementation includes tests: {'YES ✅' if has_tests else 'NO ❌'}")
@@ -687,7 +904,8 @@ def main():
                 "model": model,
                 "has_tests": has_tests,
                 "tests_passed": all_tests_passed,
-                "implementation_file": f"iteration_{iteration:02d}.py"
+                "implementation_file": f"iteration_{iteration:02d}.py",
+                "libraries_installed": lib_install_success
             }
             results.append(attempt_result)
             
