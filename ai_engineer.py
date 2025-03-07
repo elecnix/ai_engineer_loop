@@ -340,7 +340,7 @@ def run_tests(implementation_file: str, prompt: str = None) -> Tuple[bool, str]:
         If ANY tests failed, you MUST answer '<FAILED>'.
         If ALL tests passed successfully, you MUST answer '<PASSED>'.
         
-        Your answer (ONLY '<PASSED>' or '<FAILED>'):
+        Your answer: <PASSED> or <FAILED>?
         """
         
         generation = trace.generation(
@@ -372,7 +372,7 @@ def run_tests(implementation_file: str, prompt: str = None) -> Tuple[bool, str]:
         all_tests_passed = "<PASSED>" in evaluation.strip()
         
         # Add the evaluation to the output
-        output += "\n\nModel Evaluation (by llama3.2:3b): " + evaluation
+        output += "\n\nModel Evaluation: " + evaluation
             
         return all_tests_passed, output
     except subprocess.TimeoutExpired:
@@ -562,6 +562,16 @@ def run_with_venv(implementation_file: str, output_dir: str) -> Tuple[bool, str]
         
         return run_result.returncode == 0, run_result.stdout + "\n" + run_result.stderr
     
+    except subprocess.TimeoutExpired as e:
+        # Return the partial output captured before timeout
+        timeout_message = f"Execution timed out after {e.timeout} seconds."
+        output = ""
+        if e.stdout:
+            output += e.stdout.decode('utf-8', errors='replace')
+        if e.stderr:
+            output += "\n" + e.stderr.decode('utf-8', errors='replace')
+        
+        return False, f"{timeout_message}\n\nPartial output before timeout:\n{output}"
     except Exception as e:
         return False, f"Error running implementation: {str(e)}"
 
