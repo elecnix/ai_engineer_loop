@@ -306,8 +306,8 @@ def run_tests(implementation_file: str, prompt: str = None) -> Tuple[bool, str]:
         except Exception as e:
             return False, f"Error executing tests: {str(e)}"
             
-        # Use a specific model (llama3.2:3b) to determine if tests passed
-        JUDGE_MODEL = "llama3.2:3b"  # Hardcoded judge model
+        # Use an intelligent model to determine if tests passed
+        JUDGE_MODEL = "llama3.1:8b"
         trace = langfuse.trace(
             name="evaluate_tests",
             metadata={"returncode": result_returncode if 'result_returncode' in locals() else 1}
