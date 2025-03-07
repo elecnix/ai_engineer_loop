@@ -234,7 +234,8 @@ def run_tests(implementation_file: str, prompt: str = None) -> Tuple[bool, str]:
     
     First checks if the implementation includes tests. If not, returns False with a message.
     Then runs the tests using pytest, either with the system Python or with a virtual environment if available.
-    Finally, uses a model to determine if tests passed by analyzing the prompt, code, and test output.
+    Checks if pytest completed successfully without using a model.
+    Finally, uses a model to determine if the tests are valid (not to check if they passed).
     """
     try:
         # Read the implementation code
@@ -307,15 +308,22 @@ def run_tests(implementation_file: str, prompt: str = None) -> Tuple[bool, str]:
         except Exception as e:
             return False, f"Error executing tests: {str(e)}"
             
-        # Use an intelligent model to determine if tests passed
+        # First check if pytest completed successfully without using a model
+        pytest_success = result_returncode == 0 if 'result_returncode' in locals() else False
+        
+        # Check for common pytest success indicators in the output
+        if "FAILED" in output or "ERROR" in output or "failed" in output.lower():
+            pytest_success = False
+        
+        # Use an intelligent model to determine if the tests are valid (not to check if they passed)
         JUDGE_MODEL = "llama3.1:8b"
         trace = langfuse.trace(
-            name="evaluate_tests",
+            name="evaluate_test_validity",
             metadata={"returncode": result_returncode if 'result_returncode' in locals() else 1}
         )
         
         test_evaluation_prompt = f"""
-        You are a test evaluation expert. Your task is to determine if ALL tests have passed in the provided test output.
+        You are a test evaluation expert. Your task is to determine if the tests in the implementation are valid and properly test the code.
         
         Specification:
         {prompt}
@@ -330,22 +338,20 @@ def run_tests(implementation_file: str, prompt: str = None) -> Tuple[bool, str]:
         {output}
         ```
         
-        Carefully analyze the test output above. Look for any indicators of test failures such as:
-        - AssertionError
-        - SyntaxError
-        - NameError
-        - Other exceptions or errors
-        - Lines containing 'FAILED' or 'FAIL:'
-        - Lines showing test failures or errors counts
+        Carefully analyze the implementation and tests. Look for:
+        - Whether the tests actually test the functionality described in the specification
+        - If the tests are comprehensive and cover important edge cases
+        - If the assertions are meaningful and validate the correct behavior
+        - If the tests are properly structured and organized
         
-        If ANY tests failed, you MUST answer '<FAILED>'.
-        If ALL tests passed successfully, you MUST answer '<PASSED>'.
+        If the tests are valid and properly test the code, you MUST answer '<VALID>'.
+        If the tests are NOT valid or do not properly test the code, you MUST answer '<INVALID>'.
         
-        Your answer: <PASSED> or <FAILED>?
+        Your answer: <VALID> or <INVALID>?
         """
         
         generation = trace.generation(
-            name="test_evaluation",
+            name="test_validity_evaluation",
             model=JUDGE_MODEL,
             input={
                 "prompt": test_evaluation_prompt,
@@ -357,7 +363,7 @@ def run_tests(implementation_file: str, prompt: str = None) -> Tuple[bool, str]:
         response = client.chat.completions.create(
             model=JUDGE_MODEL,
             messages=[
-                {"role": "system", "content": "You are a test evaluation expert. Analyze the test output and respond with ONLY '<PASSED>' or '<FAILED>'. If ANY tests failed, respond with '<FAILED>'."},
+                {"role": "system", "content": "You are a test evaluation expert. Analyze the implementation and tests and respond with ONLY '<VALID>' or '<INVALID>'. If the tests properly test the code, respond with '<VALID>'."},
                 {"role": "user", "content": test_evaluation_prompt}
             ]
         )
@@ -369,11 +375,15 @@ def run_tests(implementation_file: str, prompt: str = None) -> Tuple[bool, str]:
             metadata={"returncode": result_returncode}
         )
         
-        # Determine if tests passed based on the model's evaluation
-        all_tests_passed = "<PASSED>" in evaluation.strip()
+        # Determine if tests are valid based on the model's evaluation
+        tests_valid = "<VALID>" in evaluation.strip()
+        
+        # Determine if all tests passed based on pytest success and test validity
+        all_tests_passed = pytest_success and tests_valid
         
         # Add the evaluation to the output
-        output += "\n\nModel Evaluation: " + evaluation
+        output += f"\n\nPytest Result: {'PASSED' if pytest_success else 'FAILED'}"
+        output += f"\n\nModel Evaluation of Test Validity: {evaluation}"
             
         return all_tests_passed, output
     except subprocess.TimeoutExpired:
