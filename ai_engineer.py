@@ -137,16 +137,77 @@ def save_implementation(code: str, filename: str) -> None:
     print(f"Implementation saved to {filename}")
 
 
+def check_for_tests(implementation_code: str) -> Tuple[bool, str]:
+    """Check if the implementation includes tests.
+    
+    Uses a model to determine if the implementation includes tests.
+    A test function with only a 'pass' statement does not count as a valid test.
+    Returns a tuple of (has_tests, model_response).
+    """
+    # Use a specific model to determine if tests are included
+    TEST_CHECK_MODEL = "llama3:8b"  # Using llama3:8b as specified in analyze_tests.py
+    
+    test_analysis_prompt = f"""
+    Analyze the following Python code to determine if it includes tests:
+    
+    ```python
+    {implementation_code}
+    ```
+    
+    Carefully analyze the code above. Look for indicators of tests such as:
+    - Use of testing frameworks like unittest, pytest, etc.
+    - Test functions or classes (e.g., functions starting with 'test_')
+    - Assertions (assert statements)
+    - Test runners or test execution code
+    
+    IMPORTANT: A test function with only a 'pass' statement does NOT count as a valid test.
+    There must be actual test logic, such as assertions or calls to the functions being tested.
+    
+    If the code includes ANY valid tests, you MUST answer '<TESTED>'.
+    If the code does NOT include any valid tests, you MUST answer '<UNTESTED>'.
+    Include the < and > around your answer.
+    
+    Your answer (ONLY '<TESTED>' or '<UNTESTED>'):
+    """
+    
+    try:
+        # Call the model to analyze the code
+        response = client.chat.completions.create(
+            model=TEST_CHECK_MODEL,
+            messages=[
+                {"role": "system", "content": "You are a code analysis expert. Analyze the code and respond with ONLY '<TESTED>' or '<UNTESTED>'. If ANY valid tests are present, respond with '<TESTED>'. Note that test functions with only 'pass' statements do NOT count as valid tests."},
+                {"role": "user", "content": test_analysis_prompt}
+            ]
+        )
+        
+        result = response.choices[0].message.content.strip().upper()
+        
+        # Determine if tests are included based on the model's evaluation
+        has_tests = "<TESTED>" in result
+        
+        return has_tests, result
+    except Exception as e:
+        print(f"Error checking for tests: {str(e)}")
+        # Default to assuming there are no tests if there's an error
+        return False, f"Error: {str(e)}"
+
+
 def run_tests(implementation_file: str, prompt: str = None) -> Tuple[bool, str]:
     """Run the tests in the implementation file and return results.
     
-    Uses the Ollama model to determine if tests passed by analyzing the prompt,
-    code, and test output.
+    First checks if the implementation includes tests. If not, returns False with a message.
+    Then uses a model to determine if tests passed by analyzing the prompt, code, and test output.
     """
     try:
         # Read the implementation code
         with open(implementation_file, 'r') as file:
             implementation_code = file.read()
+        
+        # First check if the implementation includes tests
+        has_tests, test_check_result = check_for_tests(implementation_code)
+        
+        if not has_tests:
+            return False, f"Implementation does not include tests. Model evaluation: {test_check_result}"
             
         # Run the tests
         try:
@@ -381,7 +442,7 @@ Return ONLY code, no explanations."""})
     # Extract code for saving to file, but keep full response for conversation
     code = extract_code_from_response(implementation)
     
-    # Capture usage data
+    # Initialize usage entry
     usage_entry = {
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
         "iteration": len(conversation) // 2 + 1 if conversation else 1,
@@ -390,15 +451,96 @@ Return ONLY code, no explanations."""})
         "usage": None
     }
     
-    # Add usage information if available
+    # Add usage information if available from the first call
     if hasattr(response, 'usage') and response.usage:
         usage_entry["usage"] = {
             "prompt_tokens": response.usage.prompt_tokens,
             "completion_tokens": response.usage.completion_tokens,
             "total_tokens": response.usage.total_tokens
         }
+    
+    # Check if the solution includes tests
+    has_tests, test_check_result = check_for_tests(code)
+    
+    # If the solution doesn't include tests, ask for a solution with tests
+    if not has_tests:
+        print("Solution does not include tests. Asking for a solution with tests...")
         
-        # Add detailed token information if available
+        # Add the model's response to the conversation
+        conversation.append({"role": "assistant", "content": implementation})
+        
+        # Create a message asking for tests
+        test_request_message = {
+            "role": "user", 
+            "content": "Your solution doesn't include tests. Please provide a complete solution that includes unit tests to verify the functionality."
+        }
+        
+        # Add the test request to the conversation
+        conversation.append(test_request_message)
+        
+        # Add the test request to the messages for the API call
+        messages.append({"role": "assistant", "content": implementation})
+        messages.append(test_request_message)
+        
+        # Create a new generation for the implementation with tests
+        test_generation = trace.generation(
+            name="code_generation_with_tests",
+            model=MODEL,
+            input=messages
+        )
+        
+        # Record start time for the second call
+        start_time_tests = time.time()
+        
+        # Call the API again
+        test_response = client.chat.completions.create(
+            model=MODEL,
+            messages=messages
+        )
+        
+        # Record end time for the second call
+        end_time_tests = time.time()
+        
+        # Get the full model response with tests
+        implementation_with_tests = test_response.choices[0].message.content
+        
+        # Extract code with tests for saving to file
+        code_with_tests = extract_code_from_response(implementation_with_tests)
+        
+        # Update implementation and code variables
+        implementation = implementation_with_tests
+        code = code_with_tests
+        
+        # End the test generation
+        test_generation.end(
+            output=code_with_tests,
+            metadata={
+                "conversation_length": len(conversation) + 1,
+                "has_tests": True
+            }
+        )
+        
+        # Update the usage entry for the second call
+        if hasattr(test_response, 'usage') and test_response.usage:
+            # If we already have usage data from the first call, add it to the total
+            if usage_entry["usage"] is not None:
+                usage_entry["usage"]["prompt_tokens"] += test_response.usage.prompt_tokens
+                usage_entry["usage"]["completion_tokens"] += test_response.usage.completion_tokens
+                usage_entry["usage"]["total_tokens"] += test_response.usage.total_tokens
+            else:
+                usage_entry["usage"] = {
+                    "prompt_tokens": test_response.usage.prompt_tokens,
+                    "completion_tokens": test_response.usage.completion_tokens,
+                    "total_tokens": test_response.usage.total_tokens
+                }
+            
+        # Update the duration to include both calls
+        usage_entry["duration_seconds"] += round(end_time_tests - start_time_tests, 2)
+    
+    # The usage information was already added above, so we don't need to add it again
+    
+    # Add detailed token information if available
+    if hasattr(response, 'usage') and response.usage:
         if hasattr(response.usage, 'prompt_tokens_details') and response.usage.prompt_tokens_details:
             prompt_details = {}
             if response.usage.prompt_tokens_details.audio_tokens:
