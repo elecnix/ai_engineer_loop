@@ -1,7 +1,5 @@
-implementation.py
-memory.json
 *.pyc
+*.txt
+*.json
+*.csv
 model_evaluation*
-all_models.txt
-conversation.json
-usage_data.json

@@ -130,11 +130,31 @@ def extract_code_from_response(response: str) -> str:
 # Function no longer needed as we're only extracting from proper code blocks
 
 
-def save_implementation(code: str, filename: str) -> None:
-    """Save the implementation code to a file."""
+def save_implementation(code: str, filename: str, iteration: int = None) -> None:
+    """Save the implementation code to a file.
+    
+    If iteration is provided, also saves a copy as iteration_XX.py
+    """
+    # Save to the main implementation file
     with open(filename, 'w') as file:
         file.write(code)
-    print(f"Implementation saved to {filename}")
+    
+    # If iteration is provided, save a copy with the iteration number
+    if iteration is not None:
+        # Get the directory and base filename
+        directory = os.path.dirname(filename)
+        base_name = os.path.basename(filename)
+        
+        # Create the iteration filename (e.g., iteration_01.py)
+        iteration_filename = os.path.join(directory, f"iteration_{iteration:02d}.py")
+        
+        # Save to the iteration file
+        with open(iteration_filename, 'w') as file:
+            file.write(code)
+        
+        print(f"Implementation saved to {filename} and {iteration_filename}")
+    else:
+        print(f"Implementation saved to {filename}")
 
 
 def check_for_tests(implementation_code: str) -> Tuple[bool, str]:
@@ -325,6 +345,20 @@ def save_conversation(conversation: List[Dict[str, str]], filename: str) -> None
 
 
 
+
+
+def save_results(results: List[Dict[str, Any]], filename: str) -> None:
+    """Save attempt results to a JSON file.
+    
+    Each result contains information about a single iteration attempt, including
+    whether tests passed, whether the implementation included tests, etc.
+    """
+    try:
+        with open(filename, 'w') as file:
+            json.dump(results, file, indent=2)
+        print(f"Results saved to {filename}")
+    except Exception as e:
+        print(f"Error saving results: {str(e)}")
 
 
 def save_usage_data(usage_data: List[Dict[str, Any]], filename: Optional[str] = None) -> None:
@@ -593,11 +627,17 @@ def main():
         usage_file = args.usage_file  # This can be None
         max_iterations = args.max_iterations or MAX_ITERATIONS
         
+        # Determine the results file path (in the same directory as the implementation file)
+        results_file = os.path.join(os.path.dirname(implementation_file), "results.json")
+        
         # Load conversation history
         conversation = load_conversation(conversation_file)
         
         # Load usage data if usage tracking is enabled
         usage_data = load_usage_data(usage_file) if usage_file else None
+        
+        # Initialize results list to track attempt statistics
+        results = []
         
         print(f"\n🚀 Starting AI Software Engineer Loop with {model} model")
         print(f"Implementation file: {implementation_file}")
@@ -619,8 +659,11 @@ def main():
             print("Generating implementation...")
             full_response, code = generate_implementation(prompt, conversation, usage_data)
             
-            # Save implementation to file
-            save_implementation(code, implementation_file)
+            # Check if the implementation includes tests
+            has_tests, test_check_result = check_for_tests(code)
+            
+            # Save implementation to file (including iteration-specific copy)
+            save_implementation(code, implementation_file, iteration)
             
             # Save usage data after each generation if usage tracking is enabled
             if usage_data is not None:
@@ -631,10 +674,25 @@ def main():
             all_tests_passed, test_output = run_tests(implementation_file=implementation_file, prompt=prompt)
             
             print(f"Tests {'PASSED ✅' if all_tests_passed else 'FAILED ❌'}")
+            print(f"Implementation includes tests: {'YES ✅' if has_tests else 'NO ❌'}")
             print("Test output:")
             print("-" * 40)
             print(test_output)
             print("-" * 40)
+            
+            # Add this attempt to the results
+            attempt_result = {
+                "iteration": iteration,
+                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "model": model,
+                "has_tests": has_tests,
+                "tests_passed": all_tests_passed,
+                "implementation_file": f"iteration_{iteration:02d}.py"
+            }
+            results.append(attempt_result)
+            
+            # Save the updated results after each iteration
+            save_results(results, results_file)
             
             # Add to conversation history
             if not conversation:
@@ -656,6 +714,7 @@ def main():
         print(f"- Model: {model}")
         print(f"- Iterations completed: {iteration}/{max_iterations}")
         print(f"- Tests passed: {'Yes ✅' if all_tests_passed else 'No ❌'}")
+        print(f"- Final implementation includes tests: {'Yes ✅' if has_tests else 'No ❌'}")
         
         # Print usage summary if usage tracking is enabled
         if usage_data and usage_file:
@@ -691,21 +750,23 @@ def main():
             print(f"\n⚠️ Reached maximum iterations ({max_iterations}). Stopping.")
         
         print(f"\nFinal implementation saved to {implementation_file}")
+        print(f"All iterations saved as iteration_XX.py files")
+        print(f"Results saved to {results_file}")
         print(f"Conversation saved to {conversation_file}")
         if usage_file:
             print(f"Usage data saved to {usage_file}")
         
         # Return success status for the model evaluator
-        return all_tests_passed
+        return all_tests_passed, results
         
     except Exception as e:
         print(f"\n❌ Error in AI Engineer Loop: {str(e)}")
         import traceback
         traceback.print_exc()
-        return False
+        return False, []
 
 
 if __name__ == "__main__":
-    success = main()
+    success, _ = main()
     # Exit with appropriate code for the model evaluator
     sys.exit(0 if success else 1)

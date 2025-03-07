@@ -125,20 +125,39 @@ def run_model_evaluation(model: str, run: int, prompt_path: str) -> Dict[str, An
         
         output = result.stdout + result.stderr
         
-        # Check if tests passed
-        passed = "All tests passed!" in output
-        
         # Save the output to a log file
         with open(os.path.join(paths["run_dir"], "output.log"), 'w') as f:
             f.write(output)
         
-        # Get iterations count
+        # Check results.json for test status and iteration count
+        results_path = os.path.join(paths["run_dir"], "results.json")
+        passed = False
         iterations = 0
+        has_tests = False
+        
         try:
-            with open(paths["conversation_path"], 'r') as f:
-                conversation = json.load(f)
-                # Each iteration has 2 messages (assistant + user)
-                iterations = len(conversation) // 2
+            if os.path.exists(results_path):
+                with open(results_path, 'r') as f:
+                    results = json.load(f)
+                    if results and isinstance(results, list):
+                        # Get the last result (final iteration)
+                        last_result = results[-1]
+                        passed = last_result.get("tests_passed", False)
+                        has_tests = last_result.get("has_tests", False)
+                        iterations = len(results)
+            else:
+                print(f"Warning: results.json not found at {results_path}")
+                # Fallback to checking output
+                passed = "All tests passed!" in output
+                
+                # Fallback to getting iterations from conversation
+                try:
+                    with open(paths["conversation_path"], 'r') as f:
+                        conversation = json.load(f)
+                        # Each iteration has 2 messages (assistant + user)
+                        iterations = len(conversation) // 2
+                except Exception as e:
+                    print(f"Error reading conversation file: {e}")
         except Exception as e:
             print(f"Error reading conversation file: {e}")
         
@@ -153,6 +172,7 @@ def run_model_evaluation(model: str, run: int, prompt_path: str) -> Dict[str, An
         
         return {
             "passed": passed,
+            "has_tests": has_tests,
             "exit_code": result.returncode,
             "output_path": os.path.join(paths["run_dir"], "output.log"),
             "iterations": iterations,
@@ -162,6 +182,7 @@ def run_model_evaluation(model: str, run: int, prompt_path: str) -> Dict[str, An
         print(f"Error running evaluation: {e}")
         return {
             "passed": False,
+            "has_tests": False,
             "exit_code": -1,
             "error": str(e),
             "usage_data": None
@@ -252,6 +273,7 @@ def main():
                 results["models_evaluated"][model] = {
                     "runs": {},
                     "pass_rate": 0.0,
+                    "tests_included_rate": 0.0,
                     "usage_stats": {
                         "total_tokens": 0,
                         "total_prompt_tokens": 0,
@@ -281,10 +303,12 @@ def main():
                 # Save run result
                 results["models_evaluated"][model]["runs"][str(run)] = run_result
                 
-                # Update pass rate
+                # Update pass rate and tests included rate
                 passed_runs = sum(1 for r in results["models_evaluated"][model]["runs"].values() if r.get("passed", False))
+                tests_included_runs = sum(1 for r in results["models_evaluated"][model]["runs"].values() if r.get("has_tests", False))
                 total_runs = len(results["models_evaluated"][model]["runs"])
                 results["models_evaluated"][model]["pass_rate"] = passed_runs / total_runs if total_runs > 0 else 0.0
+                results["models_evaluated"][model]["tests_included_rate"] = tests_included_runs / total_runs if total_runs > 0 else 0.0
                 
                 # Update usage statistics if available
                 if run_result.get("usage_data") and isinstance(run_result["usage_data"], dict) and "totals" in run_result["usage_data"]:
@@ -302,8 +326,10 @@ def main():
                 
                 # Print progress
                 print(f"\nModel: {model} - Run {run}/{MAX_RUNS_PER_MODEL} - {'PASSED' if run_result['passed'] else 'FAILED'}")
+                print(f"Tests included: {'YES' if run_result.get('has_tests', False) else 'NO'}")
                 print(f"Iterations: {run_result.get('iterations', 'unknown')}")
                 print(f"Current pass rate: {results['models_evaluated'][model]['pass_rate']:.2%}")
+                print(f"Tests included rate: {results['models_evaluated'][model]['tests_included_rate']:.2%}")
             
             # Reset start run for next model
             start_run = 1
@@ -324,15 +350,16 @@ def main():
     )
     
     # Print header
-    print(f"{'Model':<20} {'Pass Rate':<15} {'Total Tokens':<15} {'Prompt Tokens':<15} {'Completion':<15} {'Duration (s)':<15}")
-    print("-" * 95)
+    print(f"{'Model':<20} {'Pass Rate':<15} {'Tests Rate':<15} {'Total Tokens':<15} {'Prompt Tokens':<15} {'Completion':<15} {'Duration (s)':<15}")
+    print("-" * 110)
     
     for model, data in sorted_models:
         usage = data.get("usage_stats", {})
         passes = sum(1 for r in data['runs'].values() if r.get('passed', False))
+        tests_included = sum(1 for r in data['runs'].values() if r.get('has_tests', False))
         total_runs = len(data['runs'])
         
-        print(f"{model:<20} {data['pass_rate']:.2%} ({passes}/{total_runs}) {usage.get('total_tokens', 0):<15} {usage.get('total_prompt_tokens', 0):<15} {usage.get('total_completion_tokens', 0):<15} {usage.get('total_duration_seconds', 0):<15.2f}")
+        print(f"{model:<20} {data['pass_rate']:.2%} ({passes}/{total_runs}) {data['tests_included_rate']:.2%} ({tests_included}/{total_runs}) {usage.get('total_tokens', 0):<15} {usage.get('total_prompt_tokens', 0):<15} {usage.get('total_completion_tokens', 0):<15} {usage.get('total_duration_seconds', 0):<15.2f}")
     
     results_path = Path(BASE_DIR) / RESULTS_FILE
     print("\nEvaluation complete. Results saved to", results_path)
