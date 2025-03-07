@@ -241,6 +241,129 @@ def plot_bar_charts(dataframes, output_dir="generated/evaluation_graphs"):
             print(f"Error creating bar chart for {metric_name}: {e}")
             plt.close()
 
+def plot_pass_rate_vs_duration(dataframes, output_dir="generated/evaluation_graphs"):
+    """Generate scatter plots of pass rate vs duration for each challenge."""
+    # Create output directory if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Get the pass rate and duration dataframes
+    pass_rate_df = dataframes.get("pass_rate")
+    duration_df = dataframes.get("duration")
+    
+    if pass_rate_df is None or duration_df is None:
+        print("Missing pass rate or duration data for scatter plot")
+        return
+    
+    # Create a scatter plot for each challenge
+    for challenge in pass_rate_df.columns:
+        try:
+            plt.figure(figsize=(12, 8))
+            
+            # Extract data for this challenge
+            challenge_data = pd.DataFrame({
+                'Model': pass_rate_df.index,
+                'Pass Rate': pass_rate_df[challenge],
+                'Duration': duration_df[challenge]
+            }).dropna()
+            
+            if challenge_data.empty:
+                print(f"No data available for {challenge} scatter plot")
+                plt.close()
+                continue
+            
+            # Create the scatter plot
+            plt.scatter(challenge_data['Duration'], challenge_data['Pass Rate'], 
+                      alpha=0.7, s=100, c='blue')
+            
+            # Add model names as labels
+            for i, model in enumerate(challenge_data['Model']):
+                plt.annotate(model, 
+                           (challenge_data['Duration'].iloc[i], challenge_data['Pass Rate'].iloc[i]),
+                           xytext=(5, 5), textcoords='offset points',
+                           fontsize=8)
+            
+            # Add a trend line
+            if len(challenge_data) > 1:  # Need at least 2 points for a line
+                z = np.polyfit(challenge_data['Duration'], challenge_data['Pass Rate'], 1)
+                p = np.poly1d(z)
+                plt.plot(challenge_data['Duration'], p(challenge_data['Duration']), 
+                       "r--", alpha=0.7, label=f"Trend: y={z[0]:.2e}x+{z[1]:.2f}")
+                plt.legend()
+            
+            # Set title and labels
+            plt.title(f"Pass Rate vs Duration for {challenge}", fontsize=16)
+            plt.ylabel("Pass Rate", fontsize=12)
+            plt.xlabel("Duration (seconds)", fontsize=12)
+            plt.grid(True, alpha=0.3)
+            
+            # Set axis limits
+            plt.ylim(-0.05, 1.05)  # Pass rate is between 0 and 1
+            
+            # Save the figure
+            output_file = os.path.join(output_dir, f"pass_rate_vs_duration_{challenge}.png")
+            plt.tight_layout()
+            plt.savefig(output_file)
+            plt.close()
+            
+            print(f"Saved pass rate vs duration scatter plot for {challenge} to {output_file}")
+        except Exception as e:
+            print(f"Error creating scatter plot for {challenge}: {e}")
+            plt.close()
+    
+    # Create an aggregated scatter plot across all challenges
+    try:
+        plt.figure(figsize=(12, 8))
+        
+        # Create a dataframe with average pass rates and durations across all challenges
+        avg_data = pd.DataFrame({
+            'Model': pass_rate_df.index,
+            'Avg Pass Rate': pass_rate_df.mean(axis=1),
+            'Avg Duration': duration_df.mean(axis=1)
+        }).dropna()
+        
+        if not avg_data.empty:
+            # Create the scatter plot
+            plt.scatter(avg_data['Avg Duration'], avg_data['Avg Pass Rate'], 
+                      alpha=0.7, s=100, c='purple')
+            
+            # Add model names as labels
+            for i, model in enumerate(avg_data['Model']):
+                plt.annotate(model, 
+                           (avg_data['Avg Duration'].iloc[i], avg_data['Avg Pass Rate'].iloc[i]),
+                           xytext=(5, 5), textcoords='offset points',
+                           fontsize=8)
+            
+            # Add a trend line
+            if len(avg_data) > 1:  # Need at least 2 points for a line
+                z = np.polyfit(avg_data['Avg Duration'], avg_data['Avg Pass Rate'], 1)
+                p = np.poly1d(z)
+                plt.plot(avg_data['Avg Duration'], p(avg_data['Avg Duration']), 
+                       "r--", alpha=0.7, label=f"Trend: y={z[0]:.2e}x+{z[1]:.2f}")
+                plt.legend()
+            
+            # Set title and labels
+            plt.title(f"Average Pass Rate vs Average Duration Across All Challenges", fontsize=16)
+            plt.ylabel("Average Pass Rate", fontsize=12)
+            plt.xlabel("Average Duration (seconds)", fontsize=12)
+            plt.grid(True, alpha=0.3)
+            
+            # Set axis limits
+            plt.ylim(-0.05, 1.05)  # Pass rate is between 0 and 1
+            
+            # Save the figure
+            output_file = os.path.join(output_dir, f"pass_rate_vs_duration_all_challenges.png")
+            plt.tight_layout()
+            plt.savefig(output_file)
+            plt.close()
+            
+            print(f"Saved average pass rate vs duration scatter plot to {output_file}")
+        else:
+            print("No data available for average pass rate vs duration scatter plot")
+            plt.close()
+    except Exception as e:
+        print(f"Error creating average scatter plot: {e}")
+        plt.close()
+
 def main():
     parser = argparse.ArgumentParser(description="Generate evaluation graphs from model evaluation results")
     parser.add_argument("--base-dir", default="generated/model_evaluations", 
@@ -268,6 +391,7 @@ def main():
     # Generate visualizations
     plot_heatmaps(dataframes, args.output_dir)
     plot_bar_charts(dataframes, args.output_dir)
+    plot_pass_rate_vs_duration(dataframes, args.output_dir)
     
     print(f"All graphs have been saved to {args.output_dir}")
 
