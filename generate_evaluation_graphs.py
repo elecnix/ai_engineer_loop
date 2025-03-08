@@ -364,6 +364,95 @@ def plot_pass_rate_vs_duration(dataframes, output_dir="generated/evaluation_grap
         print(f"Error creating average scatter plot: {e}")
         plt.close()
 
+def plot_efficiency_heatmap(dataframes, output_dir="generated/evaluation_graphs"):
+    """Generate a heatmap of pass_rate / total_duration (efficiency) across all challenges."""
+    # Create output directory if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Get the pass rate and duration dataframes
+    pass_rate_df = dataframes.get("pass_rate")
+    duration_df = dataframes.get("duration")
+    
+    if pass_rate_df is None or duration_df is None:
+        print("Missing pass rate or duration data for efficiency heatmap")
+        return
+    
+    try:
+        # Calculate efficiency (pass_rate / duration)
+        # Replace zeros and NaNs in duration with a small value to avoid division by zero
+        duration_safe = duration_df.copy()
+        # Replace zeros with a small value (0.1 seconds)
+        duration_safe = duration_safe.replace(0, 0.1)
+        
+        # Calculate efficiency (higher is better)
+        efficiency_df = pass_rate_df / duration_safe
+        
+        # Set up the plot
+        plt.figure(figsize=(14, 12))
+        
+        # Create a mask for NaN values
+        mask = efficiency_df.isna()
+        
+        # Skip if all values are NaN
+        if mask.all().all():
+            print("Skipping efficiency heatmap - no data available")
+            plt.close()
+            return
+        
+        # Create the heatmap
+        ax = sns.heatmap(efficiency_df, annot=True, cmap="YlGnBu", mask=mask,
+                      linewidths=.5, fmt=".4f")
+        
+        # Set title and labels
+        plt.title("Model Efficiency (Pass Rate / Duration) by Challenge", fontsize=16)
+        plt.ylabel("Model", fontsize=12)
+        plt.xlabel("Challenge", fontsize=12)
+        
+        # Rotate x-axis labels for better readability
+        plt.xticks(rotation=45, ha="right")
+        
+        # Save the figure
+        output_file = os.path.join(output_dir, "efficiency_heatmap.png")
+        plt.tight_layout()
+        plt.savefig(output_file)
+        plt.close()
+        
+        print(f"Saved efficiency heatmap to {output_file}")
+        
+        # Also create a bar chart of average efficiency across challenges
+        plt.figure(figsize=(12, 8))
+        
+        # Calculate mean efficiency across challenges
+        mean_efficiency = efficiency_df.mean(axis=1).sort_values(ascending=False)
+        mean_efficiency = mean_efficiency.dropna()
+        
+        if not mean_efficiency.empty:
+            # Create the bar chart
+            ax = mean_efficiency.plot(kind='bar', color='teal')
+            
+            # Set title and labels
+            plt.title("Average Model Efficiency (Pass Rate / Duration) Across All Challenges", fontsize=16)
+            plt.ylabel("Efficiency", fontsize=12)
+            plt.xlabel("Model", fontsize=12)
+            
+            # Rotate x-axis labels for better readability
+            plt.xticks(rotation=45, ha="right")
+            
+            # Add value labels on top of bars
+            for i, v in enumerate(mean_efficiency):
+                ax.text(i, v + 0.001, f"{v:.4f}", ha='center', fontsize=8)
+            
+            # Save the figure
+            output_file = os.path.join(output_dir, "efficiency_bar.png")
+            plt.tight_layout()
+            plt.savefig(output_file)
+            plt.close()
+            
+            print(f"Saved efficiency bar chart to {output_file}")
+    except Exception as e:
+        print(f"Error creating efficiency visualization: {e}")
+        plt.close()
+
 def main():
     parser = argparse.ArgumentParser(description="Generate evaluation graphs from model evaluation results")
     parser.add_argument("--base-dir", default="generated/model_evaluations", 
@@ -392,6 +481,7 @@ def main():
     plot_heatmaps(dataframes, args.output_dir)
     plot_bar_charts(dataframes, args.output_dir)
     plot_pass_rate_vs_duration(dataframes, args.output_dir)
+    plot_efficiency_heatmap(dataframes, args.output_dir)
     
     print(f"All graphs have been saved to {args.output_dir}")
 
